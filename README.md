@@ -14,18 +14,27 @@ This application connects to your Spotify account and:
 ---
 
 ##  Features
-*  **Real-time Synchronization**: Polling system that updates the song info every 2 seconds.
-*  **Smooth Animation**: High-frequency rotation loop (20ms) for a realistic spinning effect.
-*  **Image Processing**: Uses the `PIL` (Pillow) library for Gaussian blurs, circular masks, and rotations.
+*  **Realistic turntable**: vinyl with fine grooves, track gaps and a fixed light reflection; a metal tonearm that lifts, swings and drops onto the record and moves inward as the song plays.
+*  **Sharp on any screen**: everything is drawn as vectors at native resolution (Retina, full screen, any window size).
+*  **Always readable**: the song title auto-fits its size and sits on an adaptive dark veil with a soft shadow; Hebrew and other RTL names are supported.
+*  **Never freezes**: Spotify is polled in the background; expired logins and network drops are handled on screen.
+*  **Keys**: `F` / double-click full screen · `T` always on top · `Esc` leave full screen.
 
 ---
 
 ##  Tech Stack
-* **Language:** Python 3.x
-* **GUI Framework:** `tkinter`
+* **Language:** Python 3.10+
+* **GUI Framework:** Qt (`PySide6`)
 * **API:** [Spotipy](https://spotipy.readthedocs.io/) (Spotify Web API wrapper)
 * **Image Handling:** `Pillow` (PIL)
-* **Networking:** `requests`
+
+---
+
+##  Running it
+* **Double-click `Vinyl Player.command`** — the first run installs everything automatically.
+* **Install as a Mac app**: run `./install_app.sh`. It adds *Vinyl Player* to `~/Applications` and starts a small background helper, so the player pops up on top whenever Spotify opens (and hides when Spotify quits). Use `--no-auto` for the app only, `--uninstall` to remove everything. Right-click the player for *Always on top* / *Quit*.
+* **Try it without Spotify**: `./"Vinyl Player.command" --demo`
+* On first launch click the window to connect Spotify; the login is remembered afterwards.
 
 ---
 

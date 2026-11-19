@@ -1,0 +1,6 @@
+PySide6-Essentials>=6.8
+spotipy>=2.24
+Pillow>=10
+requests>=2.31
+python-dotenv>=1.0
+pyobjc-framework-Cocoa>=10; sys_platform == "darwin"
