@@ -524,13 +524,17 @@ class Turntable(QWidget):
         self._quitting = False
         self.setAttribute(Qt.WA_ShowWithoutActivating, follow_spotify)  # don't steal focus from Spotify
         self.setWindowTitle("Vinyl Player")
-        self.setMinimumSize(640, 200)
+        self.setMinimumSize(300, 100)   # can shrink to a small mini-player
         self.settings = QSettings("lorenkr", "VinylPlayer")
         geo = self.settings.value("geometry")
         if geo is None or not self.restoreGeometry(geo):
-            self.resize(960, 330)
+            self.resize(560, 190)
         if self.settings.value("on_top", True, type=bool):
             self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        # Glass title bar: the artwork runs all the way up, only the traffic lights float on it.
+        self.setWindowFlag(Qt.ExpandedClientAreaHint, True)
+        self.setWindowFlag(Qt.NoTitleBarBackgroundHint, True)
+        self._press_pos = None
 
         self.track = None             # last known track (kept while paused / idle)
         self.state = "idle"           # playing | paused | idle
@@ -687,9 +691,37 @@ class Turntable(QWidget):
     def mouseDoubleClickEvent(self, _e):
         self.toggle_fullscreen()
 
-    def mouseReleaseEvent(self, _e):
-        if self.status_kind == "auth":
+    # The title bar is see-through, so the whole window can be dragged to move it.
+    def mousePressEvent(self, e):
+        self._press_pos = e.position() if e.button() == Qt.LeftButton else None
+
+    def mouseMoveEvent(self, e):
+        if self._press_pos is not None and (e.position() - self._press_pos).manhattanLength() > 4:
+            self._press_pos = None
+            if self.windowHandle():
+                self.windowHandle().startSystemMove()
+
+    def mouseReleaseEvent(self, e):
+        clicked = self._press_pos is not None
+        self._press_pos = None
+        if clicked and self.status_kind == "auth":
             self.connect_spotify()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        QTimer.singleShot(0, self._hide_native_title)
+
+    def _hide_native_title(self):
+        """Hide the 'Vinyl Player' text in the title bar (macOS)."""
+        try:
+            import objc
+            from AppKit import NSWindowTitleHidden
+            win = objc.objc_object(c_void_p=int(self.winId())).window()
+            if win is not None:
+                win.setTitleVisibility_(NSWindowTitleHidden)
+                win.setTitlebarAppearsTransparent_(True)
+        except Exception:
+            pass
 
     def connect_spotify(self):
         QDesktopServices.openUrl(QUrl(self.client.authorize_url()))
@@ -879,16 +911,6 @@ class Turntable(QWidget):
 
         p.drawPixmap(QRectF(C.x() - R, C.y() - R, 2 * R, 2 * R), sheen, QRectF())
 
-        # Spindle
-        s = R * 0.024
-        sp = QRadialGradient(QPointF(C.x() - s * 0.35, C.y() - s * 0.35), s * 1.3)
-        sp.setColorAt(0, QColor(250, 250, 255))
-        sp.setColorAt(0.5, QColor(160, 160, 168))
-        sp.setColorAt(1, QColor(50, 50, 55))
-        p.setBrush(QColor(0, 0, 0, 120))
-        p.drawEllipse(QPointF(C.x() + s * 0.25, C.y() + s * 0.35), s * 1.15, s * 1.15)
-        p.setBrush(sp)
-        p.drawEllipse(C, s, s)
 
     def paint_arm(self, p, R, C):
         P = QPointF(C.x() + PIVOT[0] * R, C.y() + PIVOT[1] * R)
@@ -939,12 +961,17 @@ class Turntable(QWidget):
             f.setWeight(weight)
             return f
 
+        # Small window: keep only what matters most.
+        if H < 170:
+            eyebrow = ""
+        if H < 130:
+            album = ""
         size = min(H * 0.16, width * 0.16)
         while True:
             tf = font(size, QFont.Bold)
-            af = font(max(12, min(size * 0.52, H * 0.085)), QFont.Medium)
-            bf = font(max(11, min(size * 0.40, H * 0.062)), QFont.Normal)
-            ef = font(max(10, min(size * 0.30, H * 0.048)), QFont.DemiBold)
+            af = font(max(9, min(size * 0.52, H * 0.085)), QFont.Medium)
+            bf = font(max(8, min(size * 0.40, H * 0.062)), QFont.Normal)
+            ef = font(max(8, min(size * 0.30, H * 0.048)), QFont.DemiBold)
             ef.setLetterSpacing(QFont.PercentageSpacing, 118)
             tm = QFontMetricsF(tf)
             tr = tm.boundingRect(QRectF(0, 0, width, 1e5), flags, title)
@@ -955,16 +982,18 @@ class Turntable(QWidget):
             gap = tf.pixelSize() * 0.22
             total = er.height() + tr.height() + ar.height() + br.height() + gap * 3
             fits = tr.width() <= width + 1 and lines <= 3 and total <= max_h
-            if fits or size <= 14:
+            if fits or size <= 10:
                 break
             size *= 0.93
         return dict(width=width, total=total, gap=gap,
                     items=[(eyebrow, ef, er, 175), (title, tf, tr, 255), (artist, af, ar, 235), (album, bf, br, 165)])
 
     def paint_text(self, p, W, H, R, C):
-        margin = max(18.0, H * 0.075)
+        margin = max(12.0, min(18.0, H * 0.1), H * 0.075)
         x0 = margin
-        x1 = C.x() - R - max(16.0, H * 0.06)
+        x1 = C.x() - R - max(10.0, H * 0.06)
+        if x1 - x0 < 60:
+            return   # too narrow for text: just the turntable
         key = (W, H, x1)
         if not self._text_cache or self._text_cache[0] != key:
             self._text_cache = (key, self._fit_text(W, H, x0, x1))
