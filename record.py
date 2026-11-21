@@ -7,6 +7,7 @@ Keys:  F / double-click  full screen     T  always on top     Esc  leave full sc
 Run:   python record.py            (or double-click "Vinyl Player.command")
        python record.py --demo     (no Spotify needed, shows a sample record)
 """
+import colorsys
 import getpass
 import math
 import os
@@ -21,7 +22,7 @@ from pathlib import Path
 os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.keymapper=false")
 
 import requests
-from PIL import Image, ImageEnhance, ImageFilter, ImageStat
+from PIL import Image, ImageStat
 from PySide6.QtCore import QElapsedTimer, QObject, QPointF, QRectF, QSettings, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QColor, QConicalGradient, QDesktopServices, QFont, QFontMetricsF, QIcon, QImage, QKeySequence,
@@ -455,10 +456,37 @@ def process_art(raw):
     s = min(w, h)
     im = im.crop(((w - s) // 2, (h - s) // 2, (w - s) // 2 + s, (h - s) // 2 + s))
     label = im.resize((720, 720), Image.LANCZOS)
-    bg = im.resize((640, 640), Image.LANCZOS).filter(ImageFilter.GaussianBlur(7))
-    bg = ImageEnhance.Color(bg).enhance(1.15)
-    lum = ImageStat.Stat(bg.convert("L")).mean[0] / 255
-    return {"label": _pil_to_qimage(label), "bg": _pil_to_qimage(bg), "lum": lum}
+    lum = ImageStat.Stat(im.convert("L")).mean[0] / 255
+    return {"label": _pil_to_qimage(label), "palette": extract_palette(im), "lum": lum}
+
+
+def extract_palette(im, k=5):
+    """The cover's most prominent colors, vivid ones first, made bolder for the background."""
+    q = im.convert("RGB").resize((96, 96)).quantize(colors=10, method=Image.Quantize.MEDIANCUT)
+    pal = q.getpalette()
+    found = []
+    for count, idx in q.getcolors():
+        r, g, b = pal[idx * 3: idx * 3 + 3]
+        mx, mn = max(r, g, b), min(r, g, b)
+        sat = (mx - mn) / mx if mx else 0
+        found.append((count * (0.35 + sat) * (0.4 + mx / 255), (r, g, b)))
+    found.sort(reverse=True)
+    picked = []
+    for _, c in found:   # skip near-duplicates
+        if all(sum((a - b) ** 2 for a, b in zip(c, o)) > 45 ** 2 for o in picked):
+            picked.append(c)
+        if len(picked) == k:
+            break
+    out = []
+    for r, g, b in picked or [(110, 80, 200)]:
+        h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+        if s > 0.08:   # colorful: push saturation and brightness so it doesn't turn grey
+            s = min(1.0, s * 1.45 + 0.12)
+            v = min(1.0, max(v, 0.5) * 1.15)
+        out.append(tuple(int(c * 255) for c in colorsys.hsv_to_rgb(h, s, v)))
+    while len(out) < 3:
+        out.append(out[-1])
+    return out
 
 
 class SpotifyWorker(QObject):
@@ -516,6 +544,18 @@ class SpotifyWorker(QObject):
 # ===========================================================================
 #  The window
 # ===========================================================================
+_GRAIN = {}
+
+
+def _grain_tile(dpr):
+    """A 512px tile of film grain, made once and repeated across the background."""
+    if dpr not in _GRAIN:
+        pm = QPixmap.fromImage(_pil_to_qimage(Image.effect_noise((512, 512), 110).convert("RGB")))
+        pm.setDevicePixelRatio(dpr)
+        _GRAIN[dpr] = pm
+    return _GRAIN[dpr]
+
+
 class Turntable(QWidget):
     def __init__(self, client=None, follow_spotify=False):
         super().__init__()
@@ -739,6 +779,9 @@ class Turntable(QWidget):
 
     def resizeEvent(self, e):
         self._text_cache = None
+        # While the window is being dragged, stretch the old background; redraw it sharp once it settles.
+        self._resizing_until = time.monotonic() + 0.2
+        QTimer.singleShot(250, self.update)
         super().resizeEvent(e)
 
     def closeEvent(self, e):
@@ -834,45 +877,82 @@ class Turntable(QWidget):
         self.paint_text(p, W, H, R, C)
         p.end()
 
-    def _bg_pixmap(self, art, W, H, C, dpr):
+    def _bg_pixmap(self, art, W, H, R, C, dpr):
         def make():
-            # Cover the window with the cover art, its center exactly behind the record's center,
-            # so the background reads as a blown-up copy of the label.
-            src = art["bg"]
-            half_w = max(C.x(), W - C.x())
-            half_h = max(C.y(), H - C.y())
-            scale = max(2 * half_w / src.width(), 2 * half_h / src.height())
-            crop = QRectF(src.width() / 2 - C.x() / scale, src.height() / 2 - C.y() / scale,
-                          W / scale, H / scale)
-            out = QImage(int(W * dpr), int(H * dpr), QImage.Format_ARGB32_Premultiplied)
+            # A grainy mesh gradient of the cover's main colors, with fine rings
+            # spreading out from the record like a fingerprint.
+            pal = [QColor(*c) for c in art["palette"]]
+            pw, ph = max(1, int(W * dpr)), max(1, int(H * dpr))
+            out = QImage(pw, ph, QImage.Format_ARGB32_Premultiplied)
+            out.setDevicePixelRatio(dpr)
             q = QPainter(out)
-            q.setRenderHint(QPainter.SmoothPixmapTransform)
-            q.drawImage(QRectF(0, 0, out.width(), out.height()), src, crop)
+            q.setRenderHint(QPainter.Antialiasing)
+            q.fillRect(QRectF(0, 0, W, H), pal[0])
+            rnd = random.Random(str(art["palette"]))   # same layout every time for a given cover
+            spots = [(0.05, 0.10, 0.80), (0.95, 0.05, 0.75), (0.80, 1.00, 0.85),
+                     (0.25, 1.05, 0.70), (0.55, 0.40, 0.55)]
+            for (fx, fy, fr), col in zip(spots, pal[1:] + pal[:1]):
+                g = QRadialGradient(QPointF((fx + rnd.uniform(-0.08, 0.08)) * W,
+                                            (fy + rnd.uniform(-0.15, 0.15)) * H), fr * max(W, H) * 0.7)
+                c = QColor(col)
+                for stop, a in ((0.0, 255), (0.4, 200), (0.75, 70), (1.0, 0)):
+                    c.setAlpha(a)
+                    g.setColorAt(stop, c)
+                q.fillRect(QRectF(0, 0, W, H), g)
+
+            dark = QColor(pal[0]).darker(170)
+            far = math.hypot(max(C.x(), W - C.x()), max(C.y(), H - C.y()))
+            step = max(3.2, R * 0.05)
+            r = R * 1.08
+            while r < far:
+                fade = min(1.0, (r - R * 1.08) / (R * 0.5))
+                path = QPainterPath()
+                for k in range(181):
+                    th = k / 180 * 2 * math.pi
+                    rr = r * (1 + 0.025 * math.sin(3 * th + r * 0.013) + 0.012 * math.sin(5 * th - r * 0.02))
+                    pt = QPointF(C.x() + rr * math.cos(th), C.y() + rr * math.sin(th) * 0.92)
+                    path.moveTo(pt) if k == 0 else path.lineTo(pt)
+                # Embossed groove: a light edge just below a darker line.
+                q.setPen(QPen(QColor(255, 255, 255, int(70 * fade)), 1.0))
+                q.drawPath(path.translated(0.0, 1.0))
+                dark.setAlpha(int(140 * fade))
+                q.setPen(QPen(dark, 1.3))
+                q.drawPath(path)
+                r += step
+
+            # Film grain, one speck per screen pixel.
+            q.setOpacity(0.28)
+            q.setCompositionMode(QPainter.CompositionMode_Overlay)
+            q.drawTiledPixmap(QRectF(0, 0, W, H), _grain_tile(dpr))
             q.end()
-            return self._pixmap(out, dpr)
-        return self._cached(("bg", id(art), W, H, C.x(), C.y(), dpr), make)
+            return QPixmap.fromImage(out)
+        key = ("bg", id(art), W, H, R, C.x(), C.y(), dpr)
+        if key not in self._cache and time.monotonic() < getattr(self, "_resizing_until", 0):
+            stale = next((v for k, v in self._cache.items() if k[0] == "bg" and k[1] == id(art)), None)
+            if stale is not None:
+                return stale
+        if key not in self._cache:   # don't pile up one per size while the window is resized
+            self._cache = {k: v for k, v in self._cache.items()
+                           if k[0] != "bg" or k[1] != id(art)}
+        return self._cached(key, make)
 
     def paint_background(self, p, W, H, R, C, dpr):
-        g = QLinearGradient(0, 0, W, H)
-        g.setColorAt(0, QColor(46, 42, 40))
-        g.setColorAt(1, QColor(20, 19, 20))
-        p.fillRect(self.rect(), g)
+        p.fillRect(self.rect(), QColor(20, 19, 20))
         for art, alpha in ((self.prev_art, 1.0), (self.art, self.art_fade)):
             if art is not None and alpha > 0:
                 p.setOpacity(alpha)
-                p.drawPixmap(QRectF(0, 0, W, H), self._bg_pixmap(art, W, H, C, dpr), QRectF())
+                p.drawPixmap(QRectF(0, 0, W, H), self._bg_pixmap(art, W, H, R, C, dpr), QRectF())
         p.setOpacity(1.0)
 
-        # Readability: a dark veil on the left (stronger on bright covers) + soft vignette.
+        # Readability: a dark veil behind the text on the left (stronger on bright covers) + soft vignette.
         lum = self.art["lum"] if self.art else 0.2
-        a = int(110 + 120 * lum)
+        a = int((110 + 120 * lum) * 0.7)
         text_end = max(1.0, C.x() - R)
         veil = QLinearGradient(0, 0, text_end, 0)
         veil.setColorAt(0.0, QColor(0, 0, 0, a))
         veil.setColorAt(0.7, QColor(0, 0, 0, int(a * 0.6)))
-        veil.setColorAt(1.0, QColor(0, 0, 0, int(20 + 40 * lum)))
+        veil.setColorAt(1.0, QColor(0, 0, 0, 0))
         p.fillRect(QRectF(0, 0, text_end, H), veil)
-        p.fillRect(QRectF(text_end, 0, W - text_end, H), QColor(0, 0, 0, int(20 + 40 * lum)))
         vig = QRadialGradient(C, max(W, H) * 0.75)
         vig.setColorAt(0.5, QColor(0, 0, 0, 0))
         vig.setColorAt(1.0, QColor(0, 0, 0, 120))

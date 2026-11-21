@@ -1,6 +1,6 @@
 # 🎵 Spotify Vinyl Player - Python Edition
 
-A stylish, interactive desktop application that brings your **Spotify** playback to life with a retro vinyl record animation. This project uses Python to fetch real-time data from Spotify and displays it on a dynamic, blurred-background GUI.
+A stylish, interactive desktop application that brings your **Spotify** playback to life with a retro vinyl record animation. This project uses Python to fetch real-time data from Spotify and displays it on a dynamic GUI whose background is built from the album cover's colors.
 
 ---
 
@@ -8,7 +8,7 @@ A stylish, interactive desktop application that brings your **Spotify** playback
 This application connects to your Spotify account and:
 * **Tracks Live Music**: Detects what you are currently listening to.
 * **Dynamic Visuals**: Downloads album art and transforms it into a rotating vinyl sticker.
-* **Immersive UI**: Features a blurred background based on the current album cover.
+* **Immersive UI**: A grainy gradient of the current album cover's main colors, with fine fingerprint-like rings spreading out from the record.
 * **Animated Elements**: Includes a spinning vinyl record and a classic record player arm.
 
 ---
