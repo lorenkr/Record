@@ -708,10 +708,24 @@ function updateText(force = false) {
 // =============================================================================
 const main = { view: null, layout: null, dpr: 1 };
 
+// On the iPhone home screen (status bar drawn over the app) portrait reports a height that is
+// short by about the status bar, which left a black strip at the bottom. Use the full screen there.
+function viewportSize() {
+  const W = window.innerWidth;
+  let H = Math.max(window.innerHeight, document.documentElement.clientHeight);
+  if (isIOS && standalone()) {
+    const long = Math.max(screen.width, screen.height), short = Math.min(screen.width, screen.height);
+    const full = W < long - 1 ? long : short;   // portrait: the long side is the height
+    if (full > H && full - H < 140) H = full;
+  }
+  return { W, H };
+}
+
 function resize() {
-  const W = window.innerWidth, H = window.innerHeight, dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const { W, H } = viewportSize(), dpr = Math.min(window.devicePixelRatio || 1, 3);
   const cv = main.view.canvas;
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
   main.dpr = dpr;
   main.layout = layoutFor(W, H, insets(), { controls: true });
   main.view.forgetSize();
