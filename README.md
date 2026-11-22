@@ -38,6 +38,18 @@ This application connects to your Spotify account and:
 
 ---
 
+##  📱 On the iPhone
+The `docs/` folder is a phone version of the player: the same turntable drawn on a canvas, as a web app you add to the home screen (no App Store, no Xcode). It logs in with Spotify's PKCE flow, so only the **Client ID** is needed (in `docs/config.js`), never the secret.
+
+1. **Host it** — GitHub → *Settings → Pages* → Source: *Deploy from a branch*, branch `main`, folder `/docs`. It goes live at `https://lorenkr.github.io/Record/`.
+2. **Spotify Dashboard** → your app → *Settings → Redirect URIs* → add exactly `https://lorenkr.github.io/Record/`.
+3. **On the iPhone** open that address in Safari → Share → *Add to Home Screen*, then open *Vinyl* from the home screen and connect Spotify there.
+
+What it does on the phone: full-screen turntable that follows what's playing (on the phone or any other device), play / pause / skip (Premium), tap the record to pause, the Spotify button jumps to the Spotify app, and the screen stays awake. The ▭ button tries to float the turntable in a Picture-in-Picture window over other apps — iOS may or may not allow it for this kind of video.
+Preview without Spotify: open it with `?demo` at the end of the address.
+
+---
+
 ##  Preview
 ![Record Player](./record.gif)
 
