@@ -1,6 +1,6 @@
 # 🎵 Spotify Vinyl Player - Python Edition
 
-A stylish, interactive desktop application that brings your **Spotify** playback to life with a retro vinyl record animation. This project uses Python to fetch real-time data from Spotify and displays it on a dynamic, blurred-background GUI.
+A stylish, interactive desktop application that brings your **Spotify** playback to life with a retro vinyl record animation. This project uses Python to fetch real-time data from Spotify and displays it on a dynamic GUI whose background is built from the album cover's colors.
 
 ---
 
@@ -8,7 +8,7 @@ A stylish, interactive desktop application that brings your **Spotify** playback
 This application connects to your Spotify account and:
 * **Tracks Live Music**: Detects what you are currently listening to.
 * **Dynamic Visuals**: Downloads album art and transforms it into a rotating vinyl sticker.
-* **Immersive UI**: Features a blurred background based on the current album cover.
+* **Immersive UI**: A grainy gradient of the current album cover's main colors, with fine fingerprint-like rings spreading out from the record.
 * **Animated Elements**: Includes a spinning vinyl record and a classic record player arm.
 
 ---
@@ -35,6 +35,18 @@ This application connects to your Spotify account and:
 * **Install as a Mac app**: run `./install_app.sh`. It adds *Vinyl Player* to `~/Applications` and starts a small background helper, so the player pops up on top whenever Spotify opens (and hides when Spotify quits). Use `--no-auto` for the app only, `--uninstall` to remove everything. Right-click the player for *Always on top* / *Quit*.
 * **Try it without Spotify**: `./"Vinyl Player.command" --demo`
 * On first launch click the window to connect Spotify; the login is remembered afterwards.
+
+---
+
+##  📱 On the iPhone
+The `docs/` folder is a phone version of the player: the same turntable drawn on a canvas, as a web app you add to the home screen (no App Store, no Xcode). It logs in with Spotify's PKCE flow, so only the **Client ID** is needed (in `docs/config.js`), never the secret.
+
+1. **Host it** — GitHub → *Settings → Pages* → Source: *Deploy from a branch*, branch `main`, folder `/docs`. It goes live at `https://lorenkr.github.io/Record/`.
+2. **Spotify Dashboard** → your app → *Settings → Redirect URIs* → add exactly `https://lorenkr.github.io/Record/`.
+3. **On the iPhone** open that address in Safari → Share → *Add to Home Screen*, then open *Vinyl* from the home screen and connect Spotify there.
+
+What it does on the phone: full-screen turntable that follows what's playing (on the phone or any other device), play / pause / skip (Premium), tap the record to pause, the Spotify button jumps to the Spotify app, and the screen stays awake. The ▭ button tries to float the turntable in a Picture-in-Picture window over other apps — iOS may or may not allow it for this kind of video.
+Preview without Spotify: open it with `?demo` at the end of the address.
 
 ---
 

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vinyl Player</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="description" content="A turntable that spins whatever you're playing on Spotify.">
+<meta name="theme-color" content="#141314">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vinyl">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div id="safe"></div>
+
+<div id="info"><div id="infoInner">
+  <div class="eyebrow" dir="auto"></div>
+  <div class="title" dir="auto"></div>
+  <div class="artist" dir="auto"></div>
+  <div class="album" dir="auto"></div>
+</div></div>
+
+<div id="toolbar" class="chrome">
+  <button id="btnPip" class="glass" hidden aria-label="Float over other apps">
+    <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><rect x="12" y="11" width="7" height="6" rx="1.2" class="fill"/></svg>
+  </button>
+  <a id="btnSpotify" class="glass" href="spotify:" aria-label="Open Spotify">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M7.5 9.6c3-1 6.5-.8 9.3.8M8 12.5c2.5-.7 5.3-.5 7.6.8M8.6 15.2c2-.5 4-.3 5.8.6"/></svg>
+  </a>
+  <button id="btnMore" class="glass" aria-label="More">
+    <svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.4" class="fill"/><circle cx="12" cy="12" r="1.4" class="fill"/><circle cx="18" cy="12" r="1.4" class="fill"/></svg>
+  </button>
+</div>
+
+<div id="menu" class="glass" hidden>
+  <button data-act="install">איך מתקינים על המסך</button>
+  <button data-act="setup">הגדרת Client ID</button>
+  <button data-act="logout">ניתוק מספוטיפי</button>
+</div>
+
+<div id="controls" class="chrome">
+  <button data-cmd="previous" class="glass" aria-label="Previous">
+    <svg viewBox="0 0 24 24"><path class="fill" d="M7 6h2v12H7zM20 6v12l-9-6z"/></svg>
+  </button>
+  <button data-cmd="toggle" class="glass big" aria-label="Play or pause">
+    <svg viewBox="0 0 24 24" class="ico-pause"><path class="fill" d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>
+    <svg viewBox="0 0 24 24" class="ico-play"><path class="fill" d="M8 5v14l11-7z"/></svg>
+  </button>
+  <button data-cmd="next" class="glass" aria-label="Next">
+    <svg viewBox="0 0 24 24"><path class="fill" d="M15 6h2v12h-2zM4 6v12l9-6z"/></svg>
+  </button>
+</div>
+
+<div id="sheet" hidden><div class="card glass" dir="rtl"></div></div>
+<div id="toast" hidden></div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

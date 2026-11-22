@@ -1,0 +1,16 @@
+{
+  "name": "Vinyl Player",
+  "short_name": "Vinyl",
+  "description": "A turntable that spins whatever you're playing on Spotify.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#141314",
+  "theme_color": "#141314",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
