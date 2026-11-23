@@ -105,7 +105,7 @@ const Deck = (() => {
   // =============================================================================
   //  Static base: plinth, platter, bearing stack, anti-skate, rest, cue housing, lamp, pitch track
   // =============================================================================
-  function base(s, R) {
+  function base(s, R, bare = false) {
     const P = v => v / s;                    // pixels → units
     const b = G.bounds, pad = P(46), Rp = 100 + P(G.rimPx(R));
     const box = [b.x0 - pad, b.y0 - pad, b.x1 - b.x0 + 2 * pad, b.y1 - b.y0 + 2 * pad];
@@ -126,6 +126,7 @@ const Deck = (() => {
     let o = '';
 
     // Plinth: soft drop shadow, tight contact shadow, matte top with fine grain, lit bevel.
+    if (!bare) {
     o += shadow(plinthShape('#000'), P(10), P(14), 'fX', .55) + shadow(plinthShape('#000'), P(2), P(3), 'fM', .7);
     o += plinthShape('url(#top)');
     o += `<g clip-path="url(#cPl)"><rect x="${b.x0}" y="${b.y0}" width="${W}" height="${H}" filter="url(#nW)" opacity=".09"/>` +
@@ -134,22 +135,44 @@ const Deck = (() => {
     o += `<rect x="${N(b.x0 + P(.7))}" y="${N(b.y0 + P(.7))}" width="${N(W - P(1.4))}" height="${N(H - P(1.4))}" rx="${N(rr - P(.7))}" fill="none" stroke="url(#bv)" stroke-width="${N(P(1.4))}"/>`;
     o += text(b.x0 + 12, b.y0 + 11, 'VINYL', 4.2, { anchor: 'start', spacing: .5, alpha: .34, weight: 700 }) +
       text(b.x0 + 12, b.y0 + 17, 'DIRECT DRIVE TURNTABLE', 2.6, { anchor: 'start', spacing: .32, alpha: .2 });
+    }
 
     // Platter well, platter (turned aluminium rim) and the record's contact shadow on it.
+    if (bare) {   // no plinth / platter: the record floats on the surface with its own shadow
+      o += shadow(`<circle r="100" fill="#000"/>`, P(9), P(13), 'fX', .55) + shadow(`<circle r="100" fill="#000"/>`, P(2), P(3), 'fM', .7);
+    } else {
     o += `<circle r="${N(Rp + P(3))}" fill="${gray(7)}"/>` + bevelRing(0, 0, Rp + P(3) - P(.6), P(1.2), 'bv', true);
     o += shadow(`<circle r="${N(Rp)}" fill="#000"/>`, P(2), P(2.6), 'fS', .85);
     o += fan(0, 0, 92, Rp, 180, brushed(132, 105, 60, 11, 7));
     o += ring(0, 0, Rp - P(.4), P(.8), 'rgba(0,0,0,.55)') + bevelRing(0, 0, Rp - P(1.2), P(.9), 'bv');
     o += ring(0, 0, Rp - P(G.rimPx(R) * .5 + 1.6), P(.6), 'rgba(0,0,0,.25)');   // step between the strobe rows
     o += shadow(`<circle r="100.6" fill="#000"/>`, P(1.4), P(1.9), 'fS', .8) + `<circle r="${N(100 + P(.8))}" fill="#000" opacity=".35"/>`;
+    }
+
+    // Parts set into the surface (bare preview): a darker well, a soft inner shadow along the
+    // edge nearest the light, and a lit lip on the far side — like a cut-out in a real deck.
+    const recess = (id, shape) => {
+      o += `<clipPath id="${id}">${shape('fill="#000"')}</clipPath>` + shape('fill="#000" opacity=".3"');
+      o += `<g clip-path="url(#${id})"><g transform="translate(${N(P(2.6))} ${N(P(3.2))})" filter="url(#fM)">${shape(`fill="none" stroke="#000" stroke-opacity=".9" stroke-width="${N(P(8))}"`)}</g></g>`;
+      o += shape(`fill="none" stroke="url(#bvIn)" stroke-width="${N(P(1.6))}"`);
+    };
+    const hole = (cx, cy, r) => a => `<circle cx="${N(cx)}" cy="${N(cy)}" r="${N(r)}" ${a}/>`;
+    if (bare) {
+      recess('rP', hole(...G.pivot, 31));
+      recess('rS', hole(...G.skate, 7.8));
+      recess('rR', hole(...G.restPost, 7.4));
+      recess('rC', a => `<rect x="-6.8" y="-10.8" width="13.6" height="23.6" rx="3.6" transform="translate(${G.cue[0]} ${G.cue[1]}) rotate(-35)" ${a}/>`);
+    }
 
     // Strobe lamp: knurled housing, warm lens.
     const [lx, ly] = G.lamp;
+    if (!bare) {
     o += shadow(`<circle cx="${lx}" cy="${ly}" r="9.6" fill="#000"/>`, P(2.5), P(3.2), 'fM', .7);
     o += fan(lx, ly, 0, 9.6, 72, brushed(78, 80, 35, 5, 5)) + knurl(lx, ly, 8.4, 9.6, 72, P(.55));
     o += bevelRing(lx, ly, 9.4, P(.6), 'bv');
     o += `<circle cx="${lx}" cy="${ly}" r="5.8" fill="url(#lens)"/>` + bevelRing(lx, ly, 6.1, P(.8), 'bv', true);
     o += `<ellipse cx="${lx - 1.8}" cy="${ly - 2}" rx="1.6" ry="1" fill="#fff" opacity=".8" transform="rotate(-45 ${lx - 1.8} ${ly - 2})"/>`;
+    }
 
     // Tonearm base: knurled collar → height-adjust ring with ticks → recess the gimbal sits in.
     const [px, py] = G.pivot;
@@ -196,6 +219,8 @@ const Deck = (() => {
     o += cueRect.replace('<rect', '<rect fill="url(#cueBody)"');
     o += cueRect.replace('<rect', `<rect fill="none" stroke="url(#bv)" stroke-width="${N(P(.7))}"`);
     o += text(cx + 8.5, cy + 13, '▲', 2.2, { alpha: .25 }) + text(cx + 12, cy + 10, '▼', 2.2, { alpha: .25 });
+
+    if (bare) return { origin: [0, 0], box, svg: svg(box, s, o, defs, 'base') };
 
     // Pitch fader track with a ±8 % scale and a centre detent mark.
     const { x: fx, y0: fy0, y1: fy1 } = G.pitch, fm = (fy0 + fy1) / 2;

@@ -1,6 +1,6 @@
 // Offline shell: the app opens even without network (Spotify itself still needs it).
 // Network first, so a new version shows up on the next launch.
-const CACHE = 'vinyl-v5';
+const CACHE = 'vinyl-v6';
 const SHELL = ['./', 'index.html', 'style.css', 'deck.js', 'app.js', 'config.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

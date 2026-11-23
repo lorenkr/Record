@@ -8,7 +8,7 @@
  * Open with ?demo to preview without Spotify.
  */
 'use strict';
-const APP_VERSION = 5;
+const APP_VERSION = 6;
 
 // --- Behaviour ---------------------------------------------------------------
 const POLL_MS = 1500;          // how often Spotify is asked what's playing
@@ -18,6 +18,8 @@ const SCOPES = 'user-read-currently-playing user-read-playback-state user-modify
 
 // --- Turntable geometry (see deck.js; the record's radius is 100 units) -------
 const DG = Deck.G;
+// The parts sit straight on the surface, set into it, with no plinth or platter (?plinth shows the full deck).
+const BARE = !new URLSearchParams(location.search).has('plinth');
 const LABEL_R = 0.34;
 
 const TAU = Math.PI * 2;
@@ -374,7 +376,7 @@ function drawBackground(view, L, dpr, S) {
 //  transform (rotate / translate / scale) and an opacity each frame.
 // =============================================================================
 const LAYERS = [
-  ['base', (s, R) => Deck.base(s, R)],
+  ['base', (s, R) => Deck.base(s, R, BARE)],
   ['d33', (s, R) => Deck.dots(s, R, 33)],
   ['d45', (s, R) => Deck.dots(s, R, 45)],
   ['glow', s => Deck.lampGlow(s)],
@@ -387,7 +389,7 @@ const LAYERS = [
   ['pivot', s => Deck.pivotTop(s)],
   ['clip', s => Deck.restClip(s)],
   ['cue', s => Deck.cueLever(s)],
-];
+].filter(([k]) => !(BARE && ['d33', 'd45', 'glow'].includes(k)));
 
 function deckPose() {
   const A = S.arm, onRecord = A.angle > DG.rest + 4;
@@ -475,7 +477,7 @@ function insets() {
     bottom: parseFloat(cs.paddingBottom) || 0, left: parseFloat(cs.paddingLeft) || 0 };
 }
 
-const DB = DG.bounds, DECK_W = DB.x1 - DB.x0, DECK_H = DB.y1 - DB.y0;
+const DB = BARE ? { x0: -114, x1: 162, y0: -138, y1: 116 } : DG.bounds, DECK_W = DB.x1 - DB.x0, DECK_H = DB.y1 - DB.y0;
 function deckAt(s, x, y) {   // the plinth's top-left corner at (x, y), s px per unit
   return { R: 100 * s, C: { x: x - DB.x0 * s, y: y - DB.y0 * s }, deck: { x, y, w: DECK_W * s, h: DECK_H * s } };
 }
@@ -709,6 +711,7 @@ function buildDeck() {
   }
   refreshLabels();
 
+  if (BARE) { main.fader = null; return; }
   // Controls on the plinth: START/STOP, 33 / 45 with their LEDs, and the pitch fader.
   const place = (el, x, y, w, h) => Object.assign(el.style, { left: px(x * s), top: px(y * s), width: px(w * s), height: px(h * s) });
   const k = DG.keys;
