@@ -66,6 +66,7 @@ html, body {
   background: none; border: 0; color: var(--fg); font: 16px var(--font);
   text-align: right; padding: 12px 14px; border-radius: 9px; direction: rtl;
 }
+#menu .ver { font-size: 11px; opacity: .45; padding: 6px 14px 4px; text-align: right; font-family: ui-monospace, Menlo, monospace; }
 #menu button:active { background: rgba(255,255,255,.12); }
 
 /* Sheets (setup / connect / install) */

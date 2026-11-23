@@ -7,6 +7,7 @@
  * Open with ?demo to preview without Spotify.
  */
 'use strict';
+const APP_VERSION = 3;
 
 // --- Behaviour ---------------------------------------------------------------
 const POLL_MS = 1500;          // how often Spotify is asked what's playing
@@ -1072,6 +1073,9 @@ function bindUI() {
     if (main.layout.portrait) { menu.style.left = r.left + 'px'; menu.style.right = ''; }
     else { menu.style.right = (innerWidth - r.right) + 'px'; menu.style.left = ''; }
     menu.querySelector('[data-act="install"]').hidden = standalone();
+    const vs = viewportSize();
+    menu.querySelector('.ver').textContent =
+      `v${APP_VERSION} · ${vs.W}×${vs.H} (${innerWidth}×${innerHeight}, ${screen.width}×${screen.height})${standalone() ? ' · app' : ''}`;
     showControls(true);
   };
   menu.onclick = e => {
@@ -1126,7 +1130,7 @@ async function start() {
   await handleRedirect();
   poll();
   if (isIOS && !standalone() && !store.get('installHintShown')) { store.set('installHintShown', '1'); showInstall(); }
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => { });
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => { });
 }
 
 if (!window.VP_NO_START) start();
