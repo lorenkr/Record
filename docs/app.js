@@ -1,27 +1,24 @@
 /* Vinyl Player for the phone — a turntable that spins whatever you're playing on Spotify.
  *
- * A port of record.py to the browser: the record, label and tonearm are drawn on a canvas at
- * the screen's native resolution; Spotify is reached with the PKCE login (no client secret),
- * so the whole app is static files that can be added to the iPhone home screen.
+ * The turntable is a physical object made of layers: the plinth, platter, tonearm and controls are
+ * SVG (deck.js), the record and its label are drawn on canvases, and everything that moves only
+ * rotates / fades, so motion stays smooth. Spotify is reached with the PKCE login (no client
+ * secret), so the whole app is static files that can be added to the iPhone home screen.
  *
  * Open with ?demo to preview without Spotify.
  */
 'use strict';
-const APP_VERSION = 4;
+const APP_VERSION = 5;
 
 // --- Behaviour ---------------------------------------------------------------
 const POLL_MS = 1500;          // how often Spotify is asked what's playing
-const RPM = 9.0;               // calm, easy-to-follow spin (a real LP turns at 33⅓)
-const DISC_DEG_PER_SEC = RPM * 360 / 60;
+const SPEEDS = { 33: 360 / 1.8, 45: 360 / (4 / 3) };   // deg/s: 33⅓ rpm = 1.8 s a turn, 45 rpm = 1.333 s
+const SPIN_UP = 0.7, SPIN_DOWN = 1.5;                  // seconds
 const SCOPES = 'user-read-currently-playing user-read-playback-state user-modify-playback-state';
 
-// --- Turntable geometry (in units of the record's radius R) ------------------
+// --- Turntable geometry (see deck.js; the record's radius is 100 units) -------
+const DG = Deck.G;
 const LABEL_R = 0.34;
-const GROOVE_OUTER = 0.94;
-const GROOVE_INNER = 0.48;
-const PIVOT = [1.04, -0.80];
-const ARM_LEN = 1.18;
-const REST_ANGLE = 78.0;
 
 const TAU = Math.PI * 2;
 const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
@@ -30,14 +27,11 @@ const deg = r => r * 180 / Math.PI;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rgba = (r, g, b, a = 255) => `rgba(${r | 0},${g | 0},${b | 0},${(a / 255).toFixed(3)})`;
 const gray = (v, a = 255) => rgba(v, v, v, a);
-
-function armAngleForRadius(r) {
-  const [px, py] = PIVOT;
-  const d = Math.hypot(px, py);
-  const cos = (ARM_LEN ** 2 + d ** 2 - r ** 2) / (2 * ARM_LEN * d);
-  const phi = deg(Math.acos(clamp(cos, -1, 1)));
-  return deg(Math.atan2(-py, -px)) - phi;
-}
+const ease = {
+  inOut: k => k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2,
+  out: k => 1 - (1 - k) ** 3,
+  sine: k => -(Math.cos(Math.PI * k) - 1) / 2,
+};
 
 function rng(seed) {   // mulberry32: same "random" record every time
   if (typeof seed === 'string') { let h = 2166136261; for (const ch of seed) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); seed = h; }
@@ -122,16 +116,30 @@ function renderDisc(n) {
   return cv;
 }
 
-function renderSheen(n) {   // light reflected by the grooves — it does NOT rotate, like a real record
+function renderSheen(n, dpr = 1) {   // light on the grooves + the record's edge — fixed to the light, it does NOT turn
   const cv = makeCanvas(n), p = cv.getContext('2d');
   const c = n / 2, R = n / 2;
-  annulusClip(p, c, c, R * 0.995, R * LABEL_R);
-  p.fillStyle = conic(p, c, c, 128, [[0, 0], [0.06, 26], [0.10, 70], [0.14, 26], [0.22, 0],
-    [0.50, 0], [0.56, 22], [0.60, 58], [0.64, 22], [0.72, 0], [1, 0]].map(([s, a]) => [s, gray(255, a)]));
-  p.fillRect(0, 0, n, n);
+  p.save();
+  annulusClip(p, c, c, R * 0.992, R * (LABEL_R + 0.01));
+  // Anisotropic highlight: two opposite bright wedges on the axis of the top-left light,
+  // the one nearer the light brighter. The grooves and label turn underneath it.
+  const g = p.createConicGradient(0, c, c);
+  for (let i = 0; i <= 120; i++) {
+    const a = i / 120 * TAU, near = Math.max(0, Math.cos(a - rad(225))), far = Math.max(0, Math.cos(a - rad(45)));
+    const alpha = 0.34 * near ** 40 + 0.20 * far ** 40 + 0.07 * near ** 5 + 0.035 * far ** 5;
+    g.addColorStop(i / 120, `rgba(255,255,255,${alpha.toFixed(4)})`);
+  }
+  p.fillStyle = g; p.fillRect(0, 0, n, n);
   const lin = p.createLinearGradient(0, 0, n, n);
-  lin.addColorStop(0, gray(255, 18)); lin.addColorStop(0.5, gray(255, 0)); lin.addColorStop(1, gray(0, 50));
+  lin.addColorStop(0, gray(255, 14)); lin.addColorStop(0.5, gray(255, 0)); lin.addColorStop(1, gray(0, 55));
   p.fillStyle = lin; p.fillRect(0, 0, n, n);
+  p.restore();
+  // The record's edge: a 1–2 px lighter bevel, bright where it faces the light.
+  const w = 1.6 * dpr, edge = p.createLinearGradient(0, 0, n, n);
+  edge.addColorStop(0, 'rgba(255,255,255,.55)'); edge.addColorStop(0.45, 'rgba(255,255,255,.16)');
+  edge.addColorStop(0.7, 'rgba(255,255,255,.05)'); edge.addColorStop(1, 'rgba(0,0,0,.35)');
+  p.lineWidth = w; p.strokeStyle = edge; strokeCircle(p, c, c, R - w / 2);
+  p.lineWidth = dpr * 0.6; p.strokeStyle = 'rgba(0,0,0,.6)'; strokeCircle(p, c, c, R - w - dpr * 0.3);
   return cv;
 }
 
@@ -164,118 +172,6 @@ function renderLabel(art, n) {   // circular paper label: album art, or a classi
   const ew = Math.max(1, n / 220);
   p.strokeStyle = gray(0, 120); p.lineWidth = ew; strokeCircle(p, c, c, r - ew / 2);
   return cv;
-}
-
-function metal(p, x, y, angle) {   // brushed aluminium
-  return conic(p, x, y, angle, [[0, 150], [0.12, 235], [0.25, 120], [0.38, 205], [0.5, 140],
-    [0.62, 230], [0.75, 115], [0.88, 200], [1, 150]].map(([s, v]) => [s, rgba(v, v, v + 4)]));
-}
-function chromeLinear(p, y0, y1) {
-  const g = p.createLinearGradient(0, y0, 0, y1);
-  g.addColorStop(0, 'rgb(70,70,75)'); g.addColorStop(0.30, 'rgb(245,245,250)');
-  g.addColorStop(0.55, 'rgb(160,160,166)'); g.addColorStop(1, 'rgb(55,55,60)');
-  return g;
-}
-
-// --- Tonearm (vector, drawn in R units) ---------------------------------------
-const ARM = (() => {
-  const L = ARM_LEN, joint = [L - 0.20, -0.065];
-  const tube = new Path2D(); tube.moveTo(-0.15, 0); tube.bezierCurveTo(0.40 * L, 0, 0.68 * L, 0.07, joint[0], joint[1]);
-  const headAngle = Math.atan2(-joint[1], L - joint[0]);
-  const hl = Math.hypot(L - joint[0], joint[1]);
-  const shell = new Path2D();
-  shell.moveTo(-0.01, -0.03); shell.lineTo(hl - 0.10, -0.055); shell.lineTo(hl + 0.035, -0.052);
-  shell.lineTo(hl + 0.035, 0.052); shell.lineTo(hl - 0.10, 0.055); shell.lineTo(-0.01, 0.03); shell.closePath();
-  const finger = new Path2D(); finger.moveTo(0.07, -0.045); finger.bezierCurveTo(0.10, -0.12, 0.15, -0.14, 0.20, -0.135);
-  return { joint, tube, headAngle, hl, shell, finger };
-})();
-
-function drawTonearm(p, Px, Py, R, angle, lift, shadowOnly = false) {
-  const { joint, tube, headAngle, hl, shell, finger } = ARM;
-  p.save();
-  p.translate(Px, Py); p.scale(R, R); p.rotate(rad(angle));
-  if (lift) p.scale(1 + 0.015 * lift, 1 + 0.015 * lift);
-  const stroke = (path, color, width, dy = 0) => {
-    p.save(); if (dy) p.translate(0, dy);
-    p.strokeStyle = color; p.lineWidth = width; p.lineCap = 'round'; p.stroke(path); p.restore();
-  };
-
-  // Counterweight
-  roundRect(p, -0.36, -0.085, 0.21, 0.17, 0.025);
-  p.fillStyle = shadowOnly ? '#000' : chromeLinear(p, -0.085, 0.085); p.fill();
-  if (!shadowOnly) {
-    p.strokeStyle = gray(0, 70); p.lineWidth = 0.006; p.beginPath();
-    for (let i = 1; i < 8; i++) { const x = -0.36 + 0.21 * i / 8; p.moveTo(x, -0.075); p.lineTo(x, 0.075); }
-    p.stroke();
-  }
-  // Tube (chrome: dark body, bright core, specular line)
-  if (shadowOnly) stroke(tube, '#000', 0.05);
-  else {
-    stroke(tube, 'rgb(55,55,60)', 0.046); stroke(tube, 'rgb(165,165,172)', 0.032, -0.002);
-    stroke(tube, 'rgb(215,215,222)', 0.016, -0.006); stroke(tube, rgba(255, 255, 255, 230), 0.005, -0.009);
-  }
-  // Headshell, angled like a real offset arm.
-  p.translate(joint[0], joint[1]); p.rotate(headAngle);
-  if (shadowOnly) {
-    p.fillStyle = '#000'; p.fill(shell); stroke(finger, '#000', 0.02);
-  } else {
-    stroke(finger, 'rgb(60,60,65)', 0.022); stroke(finger, 'rgb(225,225,232)', 0.010, -0.002);
-    const g = p.createLinearGradient(0, -0.055, 0, 0.055);
-    g.addColorStop(0, 'rgb(95,95,102)'); g.addColorStop(0.35, 'rgb(58,58,64)'); g.addColorStop(1, 'rgb(28,28,32)');
-    p.fillStyle = g; p.fill(shell);
-    p.strokeStyle = rgba(150, 150, 158, 160); p.lineWidth = 0.004; p.stroke(shell);
-    roundRect(p, -0.035, -0.033, 0.05, 0.066, 0.01); p.fillStyle = chromeLinear(p, -0.033, 0.033); p.fill();   // collar
-    const cg = p.createLinearGradient(0, -0.04, 0, 0.04);   // cartridge
-    cg.addColorStop(0, 'rgb(48,48,52)'); cg.addColorStop(0.4, 'rgb(18,18,20)'); cg.addColorStop(1, 'rgb(6,6,7)');
-    roundRect(p, hl - 0.085, -0.04, 0.105, 0.08, 0.012); p.fillStyle = cg; p.fill();
-    p.fillStyle = 'rgb(170,30,36)'; p.fillRect(hl - 0.085 + 0.012, -0.04, 0.012, 0.08);
-    p.fillStyle = 'rgb(200,200,206)';
-    for (const y of [-0.033, 0.033]) fillCircle(p, hl - 0.05, y, 0.008, 'rgb(200,200,206)');
-  }
-  p.restore();
-}
-
-function drawArmBase(p, Px, Py, R, rest) {   // the static parts: shadow, plinth, arm rest and cue lever
-  p.save();
-  p.translate(Px, Py); p.scale(R, R);
-  const sh = p.createRadialGradient(0.04, 0.06, 0, 0.04, 0.06, 0.30);
-  sh.addColorStop(0, gray(0, 150)); sh.addColorStop(0.7, gray(0, 90)); sh.addColorStop(1, gray(0, 0));
-  fillCircle(p, 0.04, 0.06, 0.30, sh);
-  // cue lever
-  p.lineCap = 'round';
-  for (const [color, w, dy] of [[gray(0, 90), 0.05, 0.012], ['rgb(70,70,75)', 0.034, 0], ['rgb(215,215,222)', 0.014, 0]]) {
-    p.strokeStyle = color; p.lineWidth = w;
-    p.beginPath(); p.moveTo(0.16, 0.16 + dy); p.lineTo(0.30, 0.31 + dy); p.stroke();
-  }
-  fillCircle(p, 0.30, 0.31, 0.035, metal(p, 0.30, 0.31, 40));
-  // plinth
-  fillCircle(p, 0, 0, 0.22, metal(p, 0, 0, 30));
-  p.strokeStyle = rgba(30, 30, 34, 200); p.lineWidth = 0.008; strokeCircle(p, 0, 0, 0.216);
-  const inner = p.createRadialGradient(-0.03, -0.03, 0, -0.03, -0.03, 0.16);
-  inner.addColorStop(0, 'rgb(70,70,76)'); inner.addColorStop(1, 'rgb(22,22,25)');
-  fillCircle(p, 0, 0, 0.135, inner);
-  p.restore();
-
-  // arm rest post
-  p.save();
-  p.translate(rest[0], rest[1]); p.scale(R, R);
-  fillCircle(p, 0.015, 0.025, 0.05, gray(0, 110));
-  const post = p.createRadialGradient(-0.012, -0.012, 0, -0.012, -0.012, 0.05);
-  post.addColorStop(0, 'rgb(120,120,128)'); post.addColorStop(1, 'rgb(30,30,34)');
-  fillCircle(p, 0, 0, 0.042, post);
-  p.restore();
-}
-
-function drawPivotCap(p, Px, Py, R) {
-  p.save();
-  p.translate(Px, Py); p.scale(R, R);
-  fillCircle(p, 0.01, 0.015, 0.085, gray(0, 90));
-  fillCircle(p, 0, 0, 0.08, metal(p, 0, 0, 70));
-  const hi = p.createRadialGradient(-0.02, -0.025, 0, -0.02, -0.025, 0.05);
-  hi.addColorStop(0, rgba(255, 255, 255, 200)); hi.addColorStop(1, rgba(255, 255, 255, 0));
-  fillCircle(p, 0, 0, 0.08, hi);
-  fillCircle(p, 0, 0, 0.018, 'rgb(40,40,44)');
-  p.restore();
 }
 
 // =============================================================================
@@ -411,9 +307,9 @@ class View {
 }
 
 function background(view, art, L, dpr) {
-  const { W, H, R, C } = L;
-  return view.cached(`bg:${art.id}:${W}x${H}:${R.toFixed(1)}:${dpr}:${L.portrait}`, () => {
-    // A grainy mesh gradient of the cover's colors, with fine rings spreading out like a fingerprint.
+  const { W, H, deck } = L;
+  return view.cached(`bg:${art.id}:${W}x${H}:${deck.x.toFixed(1)},${deck.y.toFixed(1)},${deck.w.toFixed(1)}:${dpr}:${L.portrait}`, () => {
+    // A grainy mesh gradient of the cover's colors — the room the turntable stands in.
     const pal = art.palette.map(c => [...c]);
     const cv = makeCanvas(W * dpr, H * dpr), q = cv.getContext('2d');
     q.scale(dpr, dpr);
@@ -429,38 +325,22 @@ function background(view, art, L, dpr) {
       q.fillStyle = g; q.fillRect(0, 0, W, H);
     });
 
-    const dark = pal[0].map(v => v / 1.7);
-    const far = Math.hypot(Math.max(C.x, W - C.x), Math.max(C.y, H - C.y));
-    const step = Math.max(3.2, R * 0.05);
-    for (let r = R * 1.08; r < far; r += step) {
-      const fade = Math.min(1, (r - R * 1.08) / (R * 0.5));
-      const path = new Path2D();
-      for (let k = 0; k <= 180; k++) {
-        const th = k / 180 * TAU;
-        const rr = r * (1 + 0.025 * Math.sin(3 * th + r * 0.013) + 0.012 * Math.sin(5 * th - r * 0.02));
-        const x = C.x + rr * Math.cos(th), y = C.y + rr * Math.sin(th) * 0.92;
-        k ? path.lineTo(x, y) : path.moveTo(x, y);
-      }
-      // Embossed groove: a light edge just below a darker line.
-      q.save(); q.translate(0, 1); q.strokeStyle = gray(255, 70 * fade); q.lineWidth = 1; q.stroke(path); q.restore();
-      q.strokeStyle = rgba(...dark, 140 * fade); q.lineWidth = 1.3; q.stroke(path);
-    }
-
     // Readability: a dark veil behind the text (stronger on bright covers) + soft vignette.
     const a = (110 + 120 * art.lum) * 0.7;
     if (L.portrait) {
-      const y0 = C.y + R * 0.6;
+      const y0 = deck.y + deck.h * 0.8;
       const veil = q.createLinearGradient(0, y0, 0, H);
-      veil.addColorStop(0, gray(0, 0)); veil.addColorStop(0.35, gray(0, a * 0.6)); veil.addColorStop(1, gray(0, a));
+      veil.addColorStop(0, gray(0, 0)); veil.addColorStop(0.3, gray(0, a * 0.6)); veil.addColorStop(1, gray(0, a));
       q.fillStyle = veil; q.fillRect(0, y0, W, H - y0);
     } else {
-      const end = Math.max(1, C.x - R);
+      const end = Math.max(1, deck.x + deck.w * 0.1);
       const veil = q.createLinearGradient(0, 0, end, 0);
       veil.addColorStop(0, gray(0, a)); veil.addColorStop(0.7, gray(0, a * 0.6)); veil.addColorStop(1, gray(0, 0));
       q.fillStyle = veil; q.fillRect(0, 0, end, H);
     }
-    const vig = q.createRadialGradient(C.x, C.y, 0, C.x, C.y, Math.max(W, H) * 0.75);
-    vig.addColorStop(0.5, gray(0, 0)); vig.addColorStop(1, gray(0, 120));
+    const cx = deck.x + deck.w / 2, cy = deck.y + deck.h / 2;
+    const vig = q.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.75);
+    vig.addColorStop(0.45, gray(0, 0)); vig.addColorStop(1, gray(0, 130));
     q.fillStyle = vig; q.fillRect(0, 0, W, H);
 
     // Film grain, one speck per screen pixel.
@@ -471,56 +351,67 @@ function background(view, art, L, dpr) {
   });
 }
 
-function drawScene(view, L, dpr, S) {
-  const p = view.ctx, { W, H, R, C } = L;
+function drawBackground(view, L, dpr, S) {
+  const p = view.ctx, { W, H, deck } = L;
   p.setTransform(dpr, 0, 0, dpr, 0, 0);
   p.globalAlpha = 1; p.globalCompositeOperation = 'source-over';
   p.fillStyle = 'rgb(20,19,20)'; p.fillRect(0, 0, W, H);
-
-  // Background (cross-fades when the cover changes)
+  // cross-fades when the cover changes
   for (const [art, alpha] of [[S.prevArt, 1], [S.art, S.artFade]]) {
     if (art && alpha > 0) { p.globalAlpha = alpha; p.drawImage(background(view, art, L, dpr), 0, 0, W, H); }
   }
   p.globalAlpha = 1;
   if (!S.art && !S.prevArt) {
-    const vig = p.createRadialGradient(C.x, C.y, 0, C.x, C.y, Math.max(W, H) * 0.75);
-    vig.addColorStop(0, 'rgb(46,42,44)'); vig.addColorStop(1, 'rgb(14,13,14)');
+    const cx = deck.x + deck.w / 2, cy = deck.y + deck.h / 2;
+    const vig = p.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.75);
+    vig.addColorStop(0, 'rgb(52,48,50)'); vig.addColorStop(1, 'rgb(14,13,14)');
     p.fillStyle = vig; p.fillRect(0, 0, W, H);
   }
+}
 
-  // Record
-  const n = Math.max(8, Math.round(2 * R * dpr)), ln = Math.max(8, Math.round(2 * R * LABEL_R * dpr));
-  const disc = view.cached(`disc:${n}`, () => renderDisc(n));
-  const sheen = view.cached(`sheen:${n}`, () => renderSheen(n));
-  const sx = C.x + 0.03 * R, sy = C.y + 0.07 * R;
-  const sh = p.createRadialGradient(sx, sy, 0, sx, sy, 1.13 * R);
-  sh.addColorStop(0, gray(0, 170)); sh.addColorStop(0.86, gray(0, 120)); sh.addColorStop(1, gray(0, 0));
-  fillCircle(p, sx, sy, 1.13 * R, sh);
+// =============================================================================
+//  The deck's layers, bottom to top. Static ones are SVG drawn once; moving ones only get a
+//  transform (rotate / translate / scale) and an opacity each frame.
+// =============================================================================
+const LAYERS = [
+  ['base', (s, R) => Deck.base(s, R)],
+  ['d33', (s, R) => Deck.dots(s, R, 33)],
+  ['d45', (s, R) => Deck.dots(s, R, 45)],
+  ['glow', s => Deck.lampGlow(s)],
+  ['record'], ['sheen'],
+  ['spindle', s => Deck.spindle(s)],
+  ['sh1', s => Deck.armShadow(s, 5, 'sh1')],     // arm shadow resting on the record
+  ['sh2', s => Deck.armShadow(s, 10, 'sh2')],    // …and the softer, further one when it's raised
+  ['contact'],
+  ['arm', s => Deck.arm(s)],
+  ['pivot', s => Deck.pivotTop(s)],
+  ['clip', s => Deck.restClip(s)],
+  ['cue', s => Deck.cueLever(s)],
+];
 
-  p.save();
-  p.translate(C.x, C.y); p.rotate(rad(S.discAngle));   // clockwise, like a real turntable
-  p.drawImage(disc, -R, -R, 2 * R, 2 * R);
-  const lr = R * LABEL_R;
-  for (const [art, alpha] of [[S.prevArt, 1], [S.art, S.artFade]]) {
-    if (alpha <= 0 || (!art && S.prevArt && alpha < 1)) continue;
-    const lab = view.cached(`label:${art ? art.id : 0}:${ln}`, () => renderLabel(art && art.label, ln));
-    p.globalAlpha = alpha; p.drawImage(lab, -lr, -lr, 2 * lr, 2 * lr);
+function deckPose() {
+  const A = S.arm, onRecord = A.angle > DG.rest + 4;
+  // a slightly eccentric record: the arm sways ±0.15° once per turn while it plays
+  const wobble = onRecord ? 0.15 * (1 - A.lift) * Math.sin(rad(S.discAngle)) : 0;
+  return { disc: S.discAngle, d33: S.dot33, d45: S.dot45, arm: A.angle + wobble, lift: A.lift,
+    contact: onRecord ? clamp(1 - A.lift * 6, 0, 1) : 0, cue: A.lift };
+}
+
+function poseFor(key, P) {   // { rot (deg), scale, dx, dy (px), alpha } — null for static layers
+  switch (key) {
+    case 'd33': return { rot: P.d33 };
+    case 'd45': return { rot: P.d45 };
+    case 'record': return { rot: P.disc };
+    case 'sh1': case 'sh2': {
+      // floating ~15–20 mm above the record; lifting pushes the shadow further and softer
+      const off = 5 + 7 * P.lift;
+      return { rot: P.arm, scale: 1 + 0.02 * P.lift, dx: off, dy: off, alpha: key === 'sh1' ? 0.42 * (1 - P.lift) : 0.34 * P.lift };
+    }
+    case 'contact': return { rot: P.arm, alpha: P.contact };
+    case 'arm': return { rot: P.arm, scale: 1 + 0.02 * P.lift };
+    case 'cue': return { rot: 40 - 30 * P.cue };
+    default: return null;
   }
-  p.globalAlpha = 1;
-  p.restore();
-  p.drawImage(sheen, C.x - R, C.y - R, 2 * R, 2 * R);
-
-  // Tonearm
-  const Px = C.x + PIVOT[0] * R, Py = C.y + PIVOT[1] * R, ra = rad(REST_ANGLE);
-  drawArmBase(p, Px, Py, R, [Px + Math.cos(ra) * ARM_LEN * 0.74 * R, Py + Math.sin(ra) * ARM_LEN * 0.74 * R]);
-  const off = R * (0.025 + 0.06 * S.armLift);   // shadow: further away and softer when lifted
-  p.globalAlpha = 0.32 - 0.12 * S.armLift;
-  for (const spread of [0, 0.012]) drawTonearm(p, Px + off * 0.6, Py + off + spread * R, R, S.armAngle, S.armLift, true);
-  p.globalAlpha = 1;
-  drawTonearm(p, Px, Py, R, S.armAngle, S.armLift);
-  drawPivotCap(p, Px, Py, R);
-
-  if (view.withText) drawCanvasText(p, L, textContent());
 }
 
 function wrapLines(p, text, width, maxLines) {
@@ -584,34 +475,40 @@ function insets() {
     bottom: parseFloat(cs.paddingBottom) || 0, left: parseFloat(cs.paddingLeft) || 0 };
 }
 
+const DB = DG.bounds, DECK_W = DB.x1 - DB.x0, DECK_H = DB.y1 - DB.y0;
+function deckAt(s, x, y) {   // the plinth's top-left corner at (x, y), s px per unit
+  return { R: 100 * s, C: { x: x - DB.x0 * s, y: y - DB.y0 * s }, deck: { x, y, w: DECK_W * s, h: DECK_H * s } };
+}
+
 function layoutFor(W, H, ins = { top: 0, right: 0, bottom: 0, left: 0 }, { controls = true } = {}) {
   const top = ins.top, availH = H - ins.top - ins.bottom;
-  if (W / H < 1.15) {   // portrait phone: record on top, words underneath
-    const ctrlH = controls ? 76 : 0;
-    const R = Math.min((W - 24) / 2.45, availH * 0.26);
-    const textH = clamp(availH * 0.26, 120, 230);
-    const total = 1.22 * R + 1.15 * R + 18 + textH + ctrlH;
-    const y = top + Math.max(0, (availH - total) / 2) + 1.22 * R + 6;
-    const C = { x: W / 2 - 0.17 * R, y };
-    const textTop = C.y + 1.1 * R + 18;
+  if (W / H < 1.15) {   // portrait phone: a smaller turntable in the middle, words underneath
+    const tbH = controls ? 58 : 8, ctrlH = controls ? 76 : 0;
+    const textH = clamp(availH * 0.2, 104, 190);
+    const s = Math.max(0.3, Math.min((W - 40 - ins.left - ins.right) / DECK_W, (availH - tbH - textH - ctrlH - 24) / DECK_H, 1.7));
+    const dh = DECK_H * s, total = tbH + dh + 16 + textH + ctrlH;
+    const y = top + Math.max(0, (availH - total) / 2) + tbH;
+    const d = deckAt(s, W / 2 - DECK_W * s / 2, y);
+    const textTop = y + dh + 16;
     const text = { x: 20 + ins.left, w: W - 40 - ins.left - ins.right, top: textTop, h: Math.min(textH, H - ins.bottom - ctrlH - textTop - 8) };
     text.yc = text.top + text.h / 2;
-    return { W, H, R, C, portrait: true, text,
+    return { W, H, ...d, portrait: true, text,
       controls: { x: W / 2, y: Math.min(H - ins.bottom - ctrlH / 2 - 6, text.top + text.h + ctrlH / 2) },
       toolbar: { left: 14 + ins.left, top: top + 8 } };
   }
-  // landscape (and the floating window): words on the left, record in the middle
-  const R = Math.min(0.41 * availH, (W / 2) / 1.45);
-  const C = { x: W / 2, y: top + availH * 0.52 };
-  const margin = Math.max(12, Math.min(18, availH * 0.1), availH * 0.075) + ins.left;
-  const x1 = C.x - R - Math.max(10, availH * 0.06);
-  const ctrlH = controls ? 70 : 0;
-  const h = controls ? availH - ctrlH - 24 : availH * 0.80;
-  const text = { x: margin, w: x1 - margin, top: controls ? top + 12 : C.y - h / 2, h };
+  // landscape (and the floating window): words on the left, the turntable on the right
+  const s = Math.min((availH - 28) / DECK_H, (W * 0.6 - 24 - ins.right) / DECK_W);
+  const regionL = W * 0.4, regionR = W - ins.right;
+  const x = Math.min((regionL + regionR) / 2 - DECK_W * s / 2, regionR - 16 - DECK_W * s);
+  const d = deckAt(s, x, top + (availH - DECK_H * s) / 2);
+  const margin = Math.max(18, ins.left + 12);
+  const tbH = controls ? 62 : 0, ctrlH = controls ? 70 : 0;
+  const h = controls ? availH - tbH - ctrlH - 8 : availH * 0.8;
+  const text = { x: margin, w: x - 22 - margin, top: controls ? top + tbH : top + (availH - h) / 2, h };
   text.yc = text.top + h / 2;
-  return { W, H, R, C, portrait: false, text,
+  return { W, H, ...d, portrait: false, text,
     controls: { x: margin + Math.min(text.w, 190) / 2, y: top + availH - ctrlH / 2 - 4, left: margin },
-    toolbar: { right: 14 + ins.right, top: top + 10 } };
+    toolbar: { left: margin - 4, top: top + 10 } };
 }
 
 // =============================================================================
@@ -621,7 +518,10 @@ const $ = s => document.querySelector(s);
 const S = {
   track: null, state: 'idle', status: 'starting',
   art: null, prevArt: null, artFade: 1, artUrl: null,
-  discAngle: 0, discSpeed: 0, armAngle: REST_ANGLE, armLift: 0.35,
+  speed: 33, pitch: 0,                       // selected speed and the pitch fader (±8 %)
+  omega: 0, spin: null,                      // platter speed (deg/s) and its current ramp
+  discAngle: 0, dot33: 0, dot45: 0,
+  arm: { angle: DG.rest, lift: 0, mode: 'idle', t: 0 },
 };
 const demo = new URLSearchParams(location.search).has('demo');
 
@@ -633,29 +533,56 @@ function progressFraction() {
   return clamp(ms / t.duration_ms, 0, 1);
 }
 
-let busy = true;
-function tick(dt) {
-  const playing = S.state === 'playing';
-  // Platter: spins up in about a second, coasts down a little slower.
-  const target = playing ? DISC_DEG_PER_SEC : 0;
-  S.discSpeed += (target - S.discSpeed) * (1 - Math.exp(-dt * (playing ? 3.0 : 1.8)));
-  if (!playing && S.discSpeed < 0.3) S.discSpeed = 0;
-  S.discAngle = (S.discAngle + S.discSpeed * dt) % 360;
+// What a strobe lamp shows: dots that pass one pitch per flash look still, so the row seems to move
+// only by how far the platter is off its calibrated speed.
+const strobe = (w, nominal) => ((w + nominal / 2) % nominal + nominal) % nominal - nominal / 2;
 
-  // Tonearm: lift, swing, lower — like cueing a real record.
+function tick(dt) {
+  // Platter: never jumps — it ramps to the new speed (spin-up 0.7 s, spin-down 1.5 s).
+  const target = S.state === 'playing' ? SPEEDS[S.speed] * (1 + S.pitch / 100) : 0;
+  if ((S.spin ? S.spin.to : S.omega) !== target) {
+    S.spin = { from: S.omega, to: target, t: 0, dur: target > S.omega ? SPIN_UP : SPIN_DOWN };
+  }
+  if (S.spin) {
+    const w = S.spin; w.t += dt;
+    const k = Math.min(1, w.t / w.dur);
+    S.omega = w.from + (w.to - w.from) * ease.sine(k);
+    if (k >= 1) { S.omega = w.to; S.spin = null; }
+  }
+  S.discAngle = (S.discAngle + S.omega * dt) % 360;
+  S.dot33 = (S.dot33 + strobe(S.omega, SPEEDS[33]) * dt) % 360;
+  S.dot45 = (S.dot45 + strobe(S.omega, SPEEDS[45]) * dt) % 360;
+
+  // Tonearm: cue up (200 ms) → swing (600 ms) → lower (300 ms), like cueing a real record.
   const onRecord = S.track && (S.state === 'playing' || S.state === 'paused');
-  const desired = onRecord ? armAngleForRadius(GROOVE_OUTER - (GROOVE_OUTER - GROOVE_INNER) * progressFraction()) : REST_ANGLE;
-  const diff = desired - S.armAngle, moving = Math.abs(diff) > 0.6;
-  const liftTarget = moving || S.state === 'paused' ? 1 : playing ? 0 : 0.35;
-  const step = dt * 1.8;
-  S.armLift += clamp(liftTarget - S.armLift, -step, step);
-  if (moving && S.armLift > 0.9) {
-    const limit = 70 * dt;
-    S.armAngle += clamp(diff * (1 - Math.exp(-dt * 3.2)), -limit, limit);
-  } else if (!moving) S.armAngle = desired;
+  const [gOut, gIn] = DG.groove;
+  const target2 = onRecord ? DG.armAngle(gOut - (gOut - gIn) * progressFraction()) : DG.rest;
+  const wantUp = onRecord && S.state === 'paused';
+  const A = S.arm;
+  A.t += dt;
+  const next = () => {
+    A.t = 0;
+    if (Math.abs(target2 - A.angle) > 1.2) {
+      if (A.lift < 1) { A.mode = 'lift'; A.l0 = A.lift; } else { A.mode = 'swing'; A.a0 = A.angle; A.a1 = target2; }
+      return;
+    }
+    A.angle = target2;   // close enough: just follow the groove
+    if (wantUp && A.lift < 1) { A.mode = 'lift'; A.l0 = A.lift; }
+    else if (!wantUp && A.lift > 0) { A.mode = 'lower'; A.l0 = A.lift; }
+    else A.mode = 'idle';
+  };
+  if (A.mode === 'lift') {
+    const k = Math.min(1, A.t / 0.2); A.lift = A.l0 + (1 - A.l0) * ease.out(k);
+    if (k >= 1) { A.lift = 1; next(); }
+  } else if (A.mode === 'swing') {
+    const k = Math.min(1, A.t / 0.6); A.angle = A.a0 + (A.a1 - A.a0) * ease.inOut(k);
+    if (k >= 1) next();
+  } else if (A.mode === 'lower') {
+    const k = Math.min(1, A.t / 0.3); A.lift = A.l0 * (1 - ease.out(k));
+    if (k >= 1) { A.lift = 0; next(); }
+  } else next();
 
   S.artFade = Math.min(1, S.artFade + dt / 0.8);
-  busy = S.discSpeed > 0 || moving || Math.abs(liftTarget - S.armLift) > 1e-3 || S.artFade < 1;
 }
 
 // --- texts -----------------------------------------------------------------------
@@ -705,9 +632,9 @@ function updateText(force = false) {
 }
 
 // =============================================================================
-//  Main view + animation loop
+//  Main view: background canvas + the deck's layers + animation loop
 // =============================================================================
-const main = { view: null, layout: null, dpr: 1 };
+const main = { view: null, layout: null, dpr: 1, layers: null, bgDirty: true };
 
 // On the iPhone home screen (status bar drawn over the app) portrait reports a height that is
 // short by about the status bar, which left a black strip at the bottom. Use the full screen there.
@@ -740,36 +667,147 @@ function resize() {
   main.layout = layoutFor(W, H, insets(), { controls: true });
   main.view.forgetSize();
   const L = main.layout, c = $('#controls'), tb = $('#toolbar');
-  if (L.portrait) {
-    Object.assign(c.style, { left: '50%', transform: 'translate(-50%, -50%)', top: L.controls.y + 'px' });
-    Object.assign(tb.style, { left: L.toolbar.left + 'px', right: '', top: L.toolbar.top + 'px' });
-  } else {
-    Object.assign(c.style, { left: L.controls.left + 'px', transform: 'translateY(-50%)', top: L.controls.y + 'px' });
-    Object.assign(tb.style, { right: L.toolbar.right + 'px', left: '', top: L.toolbar.top + 'px' });
-  }
+  if (L.portrait) Object.assign(c.style, { left: '50%', transform: 'translate(-50%, -50%)', top: L.controls.y + 'px' });
+  else Object.assign(c.style, { left: L.controls.left + 'px', transform: 'translateY(-50%)', top: L.controls.y + 'px' });
+  Object.assign(tb.style, { left: L.toolbar.left + 'px', top: L.toolbar.top + 'px' });
+  buildDeck();
   updateText(true);
+  main.bgDirty = true;
   draw();
 }
 
+const px = v => v.toFixed(2) + 'px';
+
+function buildDeck() {
+  const L = main.layout, s = L.R / 100, R = L.R, dpr = main.dpr, host = $('#deck');
+  host.innerHTML = '';
+  Object.assign(host.style, { left: px(L.C.x), top: px(L.C.y) });
+  main.layers = {};
+  for (const [key, make] of LAYERS) {
+    const el = document.createElement('div');
+    el.className = 'layer L-' + key + (poseFor(key, deckPose()) ? ' moves' : '');
+    if (make) {
+      const spec = make(s, R);
+      Object.assign(el.style, { left: px(spec.origin[0] * s), top: px(spec.origin[1] * s) });
+      el.innerHTML = spec.svg;
+      Object.assign(el.firstElementChild.style, { left: px(spec.box[0] * s), top: px(spec.box[1] * s) });
+    } else if (key === 'record') {
+      const n = Math.max(8, Math.round(2 * R * dpr));
+      el.appendChild(placeCanvas(main.view.cached(`disc:${n}`, () => renderDisc(n)), R));
+      el.appendChild(Object.assign(document.createElement('div'), { className: 'labels' }));
+    } else if (key === 'sheen') {
+      const n = Math.max(8, Math.round(2 * R * dpr));
+      el.appendChild(placeCanvas(main.view.cached(`sheen:${n}`, () => renderSheen(n, dpr)), R));
+    } else if (key === 'contact') {
+      Object.assign(el.style, { left: px(DG.pivot[0] * s), top: px(DG.pivot[1] * s) });
+      const dot = document.createElement('i');
+      Object.assign(dot.style, { left: px(DG.armLen * s) });
+      el.appendChild(dot);
+    }
+    host.appendChild(el);
+    main.layers[key] = el;
+  }
+  refreshLabels();
+
+  // Controls on the plinth: START/STOP, 33 / 45 with their LEDs, and the pitch fader.
+  const place = (el, x, y, w, h) => Object.assign(el.style, { left: px(x * s), top: px(y * s), width: px(w * s), height: px(h * s) });
+  const k = DG.keys;
+  const key = (name, label, aria) => {
+    const b = document.createElement('button');
+    b.className = 'key'; b.dataset.key = name; b.setAttribute('aria-label', aria);
+    b.innerHTML = `<span>${label}</span>`;
+    place(b, ...k[name]);
+    host.appendChild(b);
+    return b;
+  };
+  host.style.setProperty('--kf', Math.max(5.5, 2.9 * s).toFixed(1) + 'px');
+  key('start', 'START', 'Start or stop'); key('s33', '33', '33⅓ rpm'); key('s45', '45', '45 rpm');
+  for (const [name, [x, y]] of Object.entries(DG.leds)) {
+    const led = document.createElement('i');
+    led.className = 'led'; led.dataset.led = name;
+    place(led, x - 1.7, y - 1.7, 3.4, 3.4);
+    host.appendChild(led);
+  }
+  const fp = DG.pitch;
+  const fader = document.createElement('i'); fader.className = 'fader';
+  place(fader, fp.x - 8, (fp.y0 + fp.y1) / 2 - 4.5, 16, 9);
+  const hit = document.createElement('div'); hit.className = 'faderHit';
+  place(hit, fp.x - 14, fp.y0 - 12, 28, fp.y1 - fp.y0 + 24);
+  host.append(fader, hit);
+  main.fader = fader;
+  syncDeckControls();
+}
+
+function placeCanvas(cv, R) {
+  Object.assign(cv.style, { left: px(-R), top: px(-R), width: px(2 * R), height: px(2 * R) });
+  return cv;
+}
+
+function refreshLabels() {   // the paper label on the record (cross-fades when the cover changes)
+  const box = main.layers && main.layers.record && main.layers.record.querySelector('.labels');
+  if (!box) return;
+  const lr = main.layout.R * LABEL_R, ln = Math.max(8, Math.round(2 * lr * main.dpr));
+  box.innerHTML = '';
+  main.label = null;
+  for (const art of [S.prevArt, S.art]) {
+    if (!art && S.prevArt) continue;
+    const cv = main.view.cached(`label:${art ? art.id : 0}:${ln}`, () => renderLabel(art && art.label, ln));
+    box.appendChild(placeCanvas(cv, lr));
+    main.label = cv;
+  }
+}
+
+function syncDeckControls() {
+  for (const led of document.querySelectorAll('#deck .led')) led.classList.toggle('on', led.dataset.led === 's' + S.speed);
+  if (main.fader) {
+    const fp = DG.pitch, s = main.layout.R / 100;
+    main.fader.style.transform = `translateY(${px(S.pitch / 8 * (fp.y1 - fp.y0) / 2 * s)})`;
+  }
+}
+
+function setSpeed(v) { S.speed = v; store.set('speed', String(v)); syncDeckControls(); }
+function setPitch(v) {
+  v = clamp(Math.round(v * 10) / 10, -8, 8);
+  if (Math.abs(v) < 0.5) v = 0;   // centre detent
+  S.pitch = v; store.set('pitch', String(v)); syncDeckControls();
+}
+
+function applyPose() {   // transforms + opacity only
+  const P = deckPose();
+  for (const key in main.layers) {
+    const T = poseFor(key, P);
+    if (!T) continue;
+    const el = main.layers[key];
+    const tr = `translate(${px(T.dx || 0)},${px(T.dy || 0)}) rotate(${T.rot.toFixed(3)}deg) scale(${(T.scale || 1).toFixed(4)})`;
+    if (el._tr !== tr) { el.style.transform = tr; el._tr = tr; }
+    const op = (T.alpha ?? 1).toFixed(3);
+    if (el._op !== op) { el.style.opacity = op; el._op = op; }
+  }
+  if (main.label) {
+    const op = (S.prevArt ? S.artFade : 1).toFixed(3);
+    if (main.label._op !== op) { main.label.style.opacity = op; main.label._op = op; }
+  }
+}
+
 function draw() {
-  drawScene(main.view, main.layout, main.dpr, S);
+  if (main.bgDirty || S.artFade < 1) { drawBackground(main.view, main.layout, main.dpr, S); main.bgDirty = S.artFade < 1; }
+  applyPose();
   if (pip.active) drawPip();
 }
 
-let lastT = performance.now(), lastDraw = 0;
+let lastT = performance.now();
 function frame(now) {
   const dt = Math.min(0.1, (now - lastT) / 1000);
   lastT = now;
   tick(dt);
-  // Idle: barely any work (the arm still creeps inward with the song, so redraw now and then).
-  if (busy || now - lastDraw > 250) { draw(); lastDraw = now; }
+  draw();
   requestAnimationFrame(frame);
 }
 
 // =============================================================================
 //  Floating window (Picture in Picture) — keeps the turntable on screen over Spotify
 // =============================================================================
-const pip = { view: null, video: null, active: false, timer: 0 };
+const pip = { view: null, video: null, active: false, timer: 0, imgs: null };
 const PIP_W = 720, PIP_H = 360;
 
 function pipSupported() {
@@ -779,11 +817,63 @@ function pipSupported() {
     !!HTMLCanvasElement.prototype.captureStream;
 }
 
+// The same SVG layers, turned into images once so the window can be drawn on a canvas.
+async function rasterDeck(L) {
+  const s = L.R / 100, out = {};
+  await Promise.all(LAYERS.filter(([, make]) => make).map(async ([key, make]) => {
+    const spec = make(s, L.R), img = new Image();
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(spec.svg);
+    try { await img.decode(); out[key] = { img, spec }; } catch (e) { console.warn('layer', key, e); }
+  }));
+  return out;
+}
+
+function drawPip() {
+  const v = pip.view, L = pip.layout, p = v.ctx, R = L.R, s = R / 100;
+  drawBackground(v, L, 1, S);
+  const P = deckPose();
+  p.save();
+  p.translate(L.C.x, L.C.y);
+  for (const [key] of LAYERS) {
+    const T = poseFor(key, P) || {};
+    const alpha = T.alpha ?? 1;
+    if (alpha <= 0.002) continue;
+    p.save();
+    p.globalAlpha = alpha;
+    const o = pip.imgs && pip.imgs[key];
+    const origin = o ? o.spec.origin : key === 'contact' ? DG.pivot : [0, 0];
+    p.translate(origin[0] * s + (T.dx || 0), origin[1] * s + (T.dy || 0));
+    p.rotate(rad(T.rot || 0));
+    if (T.scale) p.scale(T.scale, T.scale);
+    if (o) {
+      const [bx, by, bw, bh] = o.spec.box;
+      p.drawImage(o.img, bx * s, by * s, bw * s, bh * s);
+    } else if (key === 'record') {
+      const n = Math.round(2 * R), ln = Math.round(2 * R * LABEL_R), lr = R * LABEL_R;
+      p.drawImage(v.cached(`disc:${n}`, () => renderDisc(n)), -R, -R, 2 * R, 2 * R);
+      for (const [art, a] of [[S.prevArt, 1], [S.art, S.prevArt ? S.artFade : 1]]) {
+        if (!art && S.prevArt) continue;
+        p.globalAlpha = alpha * a;
+        p.drawImage(v.cached(`label:${art ? art.id : 0}:${ln}`, () => renderLabel(art && art.label, ln)), -lr, -lr, 2 * lr, 2 * lr);
+      }
+    } else if (key === 'sheen') {
+      const n = Math.round(2 * R);
+      p.drawImage(v.cached(`sheen:${n}`, () => renderSheen(n, 1)), -R, -R, 2 * R, 2 * R);
+    } else if (key === 'contact') {
+      fillCircle(p, DG.armLen * s, 0, 1.8, 'rgba(0,0,0,.7)');
+    }
+    p.restore();
+  }
+  p.restore();
+  drawCanvasText(p, L, textContent());
+}
+
 function preparePip() {
   if (pip.video) return;
   const cv = makeCanvas(PIP_W, PIP_H);
   pip.view = new View(cv, { withText: true });
   pip.layout = layoutFor(PIP_W, PIP_H, undefined, { controls: false });
+  rasterDeck(pip.layout).then(imgs => { pip.imgs = imgs; drawPip(); });
   drawPip();
   const v = document.createElement('video');
   v.muted = true; v.playsInline = true; v.autoplay = true;
@@ -801,8 +891,6 @@ function preparePip() {
   });
   pip.video = v;
 }
-
-function drawPip() { drawScene(pip.view, pip.layout, 1, S); }
 
 // While the app is in the background requestAnimationFrame stops, so a timer keeps the window moving.
 function startPipTimer() {
@@ -947,6 +1035,7 @@ function setArt(art) {
   const keep = [S.prevArt, S.art].filter(Boolean).map(a => a.id);
   main.view.forgetArt(keep);
   if (pip.view) pip.view.forgetArt(keep);
+  refreshLabels();
 }
 
 let pollTimer = 0;
@@ -973,7 +1062,6 @@ async function poll() {
 }
 
 async function command(cmd) {
-  if (demo) { S.state = S.state === 'playing' ? 'paused' : 'playing'; updateText(); return; }
   if (!S.track && cmd === 'toggle') return;
   const playing = S.state === 'playing';
   const [method, path] = {
@@ -985,6 +1073,7 @@ async function command(cmd) {
     S.track.fetched_at = performance.now();
     S.state = playing ? 'paused' : 'playing'; updateText();
   }
+  if (demo) return;
   try {
     const r = await api(method, path);
     if (r.status === 403) toast('שליטה בנגינה דורשת ספוטיפי פרימיום');
@@ -1079,8 +1168,7 @@ function bindUI() {
     const r = e.currentTarget.getBoundingClientRect();
     menu.hidden = false;
     menu.style.top = (r.bottom + 8) + 'px';
-    if (main.layout.portrait) { menu.style.left = r.left + 'px'; menu.style.right = ''; }
-    else { menu.style.right = (innerWidth - r.right) + 'px'; menu.style.left = ''; }
+    menu.style.left = r.left + 'px';
     menu.querySelector('[data-act="install"]').hidden = standalone();
     const vs = viewportSize();
     menu.querySelector('.ver').textContent =
@@ -1113,6 +1201,27 @@ function bindUI() {
     if (d < L.R && (S.track || demo)) command('toggle');
     showControls();
   });
+  // The turntable's own controls.
+  const deck = $('#deck');
+  deck.addEventListener('click', e => {
+    const b = e.target.closest('.key'); if (!b) return;
+    e.stopPropagation(); keepAwake();
+    if (b.dataset.key === 'start') { if (S.track || demo) command('toggle'); }
+    else setSpeed(b.dataset.key === 's45' ? 45 : 33);
+  });
+  let drag = null;
+  deck.addEventListener('pointerdown', e => {
+    if (!e.target.classList.contains('faderHit')) return;
+    e.preventDefault();
+    const fp = DG.pitch, s = main.layout.R / 100;
+    drag = { id: e.pointerId, y: e.clientY, p: S.pitch, k: 16 / ((fp.y1 - fp.y0) * s) };
+    e.target.setPointerCapture(e.pointerId);
+  });
+  deck.addEventListener('pointermove', e => { if (drag && e.pointerId === drag.id) setPitch(drag.p + (e.clientY - drag.y) * drag.k); });
+  const endDrag = e => { if (drag && e.pointerId === drag.id) drag = null; };
+  deck.addEventListener('pointerup', endDrag); deck.addEventListener('pointercancel', endDrag);
+  deck.addEventListener('dblclick', e => { if (e.target.classList.contains('faderHit')) setPitch(0); });
+
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) { keepAwake(); poll(); lastT = performance.now(); }
   });
@@ -1123,6 +1232,8 @@ function bindUI() {
 // =============================================================================
 async function start() {
   main.view = new View($('#scene'));
+  S.speed = store.get('speed') === '45' ? 45 : 33;
+  S.pitch = clamp(+store.get('pitch') || 0, -8, 8);
   bindUI();
   resize();
   requestAnimationFrame(t => { lastT = t; frame(t); });

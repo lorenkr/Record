@@ -24,6 +24,55 @@ body { min-height: calc(100vh + env(safe-area-inset-top)); }
 }
 [hidden] { display: none !important; }
 
+/* The turntable: layers placed round the spindle (#deck's origin). Moving layers only get
+   transform / opacity, so the compositor does the animation. */
+#deck { position: fixed; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
+#deck .layer { position: absolute; width: 0; height: 0; transform-origin: 0 0; }
+#deck .layer > svg, #deck .layer canvas { position: absolute; display: block; overflow: visible; }
+#deck .layer.moves { will-change: transform, opacity; }
+#deck .labels canvas { will-change: opacity; }
+#deck .L-contact i {   /* the stylus' tiny, sharp contact shadow */
+  position: absolute; top: 0; width: 4px; height: 2.6px; margin: -1px 0 0 -1px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0,0,0,.9), rgba(0,0,0,.45) 60%, transparent);
+}
+#deck .key {
+  position: absolute; pointer-events: auto; border: 0; padding: 0; border-radius: 1.5px; cursor: pointer;
+  display: grid; place-items: center; color: rgba(255,255,255,.5);
+  font: 600 var(--kf) var(--font); letter-spacing: .14em; text-indent: .14em;
+  background: linear-gradient(165deg, #4a4a4e 0%, #2c2c2f 42%, #1a1a1c 100%);
+  box-shadow: inset 0 .5px 0 rgba(255,255,255,.3), inset .5px 0 0 rgba(255,255,255,.1),
+    inset 0 -1px 0 rgba(0,0,0,.55), 1px 2px 2.5px rgba(0,0,0,.65), 0 0 0 .5px rgba(0,0,0,.6);
+  transition: transform .07s ease-out, box-shadow .07s ease-out;
+}
+#deck .key::after { content: ''; position: absolute; inset: -14px -3px; }   /* a finger-sized target */
+#deck .key:active {
+  transform: translateY(1px);
+  background: linear-gradient(165deg, #343437 0%, #222224 50%, #18181a 100%);
+  box-shadow: inset 0 1px 2.5px rgba(0,0,0,.85), inset 0 0 0 .5px rgba(0,0,0,.7), 0 0 0 .5px rgba(0,0,0,.6);
+}
+#deck .led {
+  position: absolute; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle at 40% 35%, #5d5853 0%, #2b2826 60%, #141312 100%);
+  box-shadow: inset 0 0 .5px rgba(0,0,0,.9); transition: background .3s, box-shadow .3s;
+}
+#deck .led.on {
+  background: radial-gradient(circle at 42% 38%, #fffaf2 0%, #ffe2b8 35%, #e0a46a 75%, #8e5e36 100%);
+  box-shadow: 0 0 3px 1px rgba(255,210,160,.6), 0 0 9px 3px rgba(255,190,130,.22);
+}
+#deck .fader {
+  position: absolute; pointer-events: none; border-radius: 1.5px; will-change: transform;
+  background: linear-gradient(165deg, #5e5e62 0%, #2e2e31 50%, #1a1a1c 100%);
+  box-shadow: inset 0 .5px 0 rgba(255,255,255,.3), inset 0 -1px 0 rgba(0,0,0,.6), 2px 3px 4px rgba(0,0,0,.6), 0 0 0 .5px rgba(0,0,0,.6);
+}
+#deck .fader::before {   /* grip ridges */
+  content: ''; position: absolute; inset: 16% 10%;
+  background: repeating-linear-gradient(to bottom, rgba(255,255,255,.13) 0 .5px, rgba(0,0,0,.4) .5px 1.5px);
+}
+#deck .fader::after {   /* index line */
+  content: ''; position: absolute; left: 4%; right: 4%; top: 50%; height: 1px; margin-top: -.5px; background: rgba(255,255,255,.6);
+}
+#deck .faderHit { position: absolute; pointer-events: auto; touch-action: none; cursor: ns-resize; }
+
 /* Track info */
 #info { position: fixed; display: flex; flex-direction: column; justify-content: center; pointer-events: none; }
 #info.portrait { justify-content: flex-start; text-align: center; }
