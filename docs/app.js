@@ -8,7 +8,7 @@
  * Open with ?demo to preview without Spotify.
  */
 'use strict';
-const APP_VERSION = 6;
+const APP_VERSION = 7;
 
 // --- Behaviour ---------------------------------------------------------------
 const POLL_MS = 1500;          // how often Spotify is asked what's playing
@@ -527,11 +527,19 @@ const S = {
 };
 const demo = new URLSearchParams(location.search).has('demo');
 
+// Turning the record by hand: one full turn moves 10 seconds through the song
+// (backwards = counter-clockwise, like pulling a record back).
+const SCRUB_MS_PER_TURN = 10000;
+
+function trackMs() {
+  const t = S.track;
+  if (!t) return 0;
+  return t.progress_ms + (S.state === 'playing' ? performance.now() - t.fetched_at : 0);
+}
 function progressFraction() {
   const t = S.track;
   if (!t || !t.duration_ms) return 0;
-  let ms = t.progress_ms;
-  if (S.state === 'playing') ms += performance.now() - t.fetched_at;
+  const ms = trackMs() + (S.scrub ? S.scrub.turned / 360 * SCRUB_MS_PER_TURN : 0);
   return clamp(ms / t.duration_ms, 0, 1);
 }
 
@@ -551,7 +559,7 @@ function tick(dt) {
     S.omega = w.from + (w.to - w.from) * ease.sine(k);
     if (k >= 1) { S.omega = w.to; S.spin = null; }
   }
-  S.discAngle = (S.discAngle + S.omega * dt) % 360;
+  if (!S.scrub) S.discAngle = (S.discAngle + S.omega * dt) % 360;   // a finger holds it while scrubbing
   S.dot33 = (S.dot33 + strobe(S.omega, SPEEDS[33]) * dt) % 360;
   S.dot45 = (S.dot45 + strobe(S.omega, SPEEDS[45]) * dt) % 360;
 
@@ -561,6 +569,11 @@ function tick(dt) {
   const target2 = onRecord ? DG.armAngle(gOut - (gOut - gIn) * progressFraction()) : DG.rest;
   const wantUp = onRecord && S.state === 'paused';
   const A = S.arm;
+  if (S.scrub && onRecord) {   // the arm rides the groove as the record is turned
+    A.angle = target2; A.mode = 'idle'; A.t = 0;
+    S.artFade = Math.min(1, S.artFade + dt / 0.8);
+    return;
+  }
   A.t += dt;
   const next = () => {
     A.t = 0;
@@ -711,9 +724,20 @@ function buildDeck() {
   }
   refreshLabels();
 
-  if (BARE) { main.fader = null; return; }
   // Controls on the plinth: START/STOP, 33 / 45 with their LEDs, and the pitch fader.
   const place = (el, x, y, w, h) => Object.assign(el.style, { left: px(x * s), top: px(y * s), width: px(w * s), height: px(h * s) });
+  if (BARE) {
+    main.fader = null;
+    const [wx, wy, ww, wh] = DG.speedSwitch;
+    const sw = document.createElement('button');
+    sw.className = 'switch'; sw.setAttribute('aria-label', 'Switch between 33 and 45 rpm');
+    sw.innerHTML = '<i></i>';
+    place(sw, wx - ww / 2, wy - wh / 2, ww, wh);
+    sw.style.setProperty('--travel', px(ww / 2 * s));
+    host.appendChild(sw);
+    syncDeckControls();
+    return;
+  }
   const k = DG.keys;
   const key = (name, label, aria) => {
     const b = document.createElement('button');
@@ -762,6 +786,8 @@ function refreshLabels() {   // the paper label on the record (cross-fades when 
 
 function syncDeckControls() {
   for (const led of document.querySelectorAll('#deck .led')) led.classList.toggle('on', led.dataset.led === 's' + S.speed);
+  const sw = document.querySelector('#deck .switch');
+  if (sw) sw.classList.toggle('at45', S.speed === 45);
   if (main.fader) {
     const fp = DG.pitch, s = main.layout.R / 100;
     main.fader.style.transform = `translateY(${px(S.pitch / 8 * (fp.y1 - fp.y0) / 2 * s)})`;
@@ -1064,6 +1090,19 @@ async function poll() {
   pollTimer = setTimeout(poll, delay);
 }
 
+async function seekTo(ms) {
+  const t = S.track; if (!t) return;
+  ms = clamp(ms, 0, Math.max(0, t.duration_ms - 1000));
+  t.progress_ms = ms; t.fetched_at = performance.now();
+  if (demo) return;
+  try {
+    const r = await api('PUT', '/me/player/seek?position_ms=' + Math.round(ms));
+    if (r.status === 403) toast('קפיצה בשיר דורשת ספוטיפי פרימיום');
+    else if (r.status === 404) toast('אין מכשיר פעיל — פתח את ספוטיפי');
+  } catch (e) { if (!e.auth) toast('אין חיבור לספוטיפי'); }
+  setTimeout(poll, 600);
+}
+
 async function command(cmd) {
   if (!S.track && cmd === 'toggle') return;
   const playing = S.state === 'playing';
@@ -1193,7 +1232,38 @@ function bindUI() {
   };
   $('#sheet').onclick = e => { if (e.target.id === 'sheet') sheet(null); };
 
+  // Drag the record round to move through the song (a tap still pauses / plays).
+  const scene = $('#scene');
+  let grab = null, swallowClick = false;
+  const angleAt = e => deg(Math.atan2(e.clientY - main.layout.C.y, e.clientX - main.layout.C.x));
+  scene.addEventListener('pointerdown', e => {
+    const L = main.layout, d = Math.hypot(e.clientX - L.C.x, e.clientY - L.C.y);
+    if (d > L.R || d < L.R * 0.08 || !S.track || S.status === 'auth' || S.status === 'config') return;
+    grab = { id: e.pointerId, x: e.clientX, y: e.clientY, a: angleAt(e), moved: false };
+  });
+  scene.addEventListener('pointermove', e => {
+    if (!grab || e.pointerId !== grab.id) return;
+    if (!grab.moved) {
+      if (Math.hypot(e.clientX - grab.x, e.clientY - grab.y) < 8) return;
+      grab.moved = true; S.scrub = { turned: 0 };
+      try { scene.setPointerCapture(e.pointerId); } catch { }
+    }
+    const a = angleAt(e), da = ((a - grab.a + 540) % 360) - 180;
+    grab.a = a; S.scrub.turned += da; S.discAngle = (S.discAngle + da + 360) % 360;
+  });
+  const release = e => {
+    if (!grab || e.pointerId !== grab.id) return;
+    if (grab.moved && S.scrub) {
+      const ms = trackMs() + S.scrub.turned / 360 * SCRUB_MS_PER_TURN;
+      S.scrub = null; swallowClick = true; setTimeout(() => { swallowClick = false; }, 50);
+      seekTo(ms);
+    }
+    grab = null;
+  };
+  scene.addEventListener('pointerup', release); scene.addEventListener('pointercancel', release);
+
   $('#scene').addEventListener('click', e => {
+    if (swallowClick) { swallowClick = false; return; }
     keepAwake();
     preparePip();
     if (!menu.hidden) { menu.hidden = true; return; }
@@ -1207,6 +1277,7 @@ function bindUI() {
   // The turntable's own controls.
   const deck = $('#deck');
   deck.addEventListener('click', e => {
+    if (e.target.closest('.switch')) { e.stopPropagation(); keepAwake(); setSpeed(S.speed === 45 ? 33 : 45); return; }
     const b = e.target.closest('.key'); if (!b) return;
     e.stopPropagation(); keepAwake();
     if (b.dataset.key === 'start') { if (S.track || demo) command('toggle'); }

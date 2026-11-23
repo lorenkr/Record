@@ -25,6 +25,7 @@ const Deck = (() => {
     rest: 88,                   // arm angle when parked in the rest
     groove: [94, 45],           // lead-in → run-out radius
     cue: [157, -36], skate: [96, -98], lamp: [-109, 92],
+    speedSwitch: [-94, 100, 22, 7],   // centre x, y, width, height of the 33 / 45 slide switch
     pitch: { x: 168, y0: 26, y1: 114 },
     keys: { start: [-121, 119, 42, 15], s33: [-69, 120, 17, 12], s45: [-46, 120, 17, 12] },
     leds: { s33: [-60.5, 112.5], s45: [-37.5, 112.5] },
@@ -162,6 +163,11 @@ const Deck = (() => {
       recess('rS', hole(...G.skate, 7.8));
       recess('rR', hole(...G.restPost, 7.4));
       recess('rC', a => `<rect x="-6.8" y="-10.8" width="13.6" height="23.6" rx="3.6" transform="translate(${G.cue[0]} ${G.cue[1]}) rotate(-35)" ${a}/>`);
+      // 33 / 45 slide switch: a slot cut into the surface, with tiny printed labels
+      const [wx, wy, ww, wh] = G.speedSwitch;
+      recess('rW', a => `<rect x="${wx - ww / 2}" y="${wy - wh / 2}" width="${ww}" height="${wh}" rx="${wh / 2}" ${a}/>`);
+      o += text(wx - ww / 4, wy - wh / 2 - 4.2, '33', 3, { alpha: .45 }) + text(wx + ww / 4, wy - wh / 2 - 4.2, '45', 3, { alpha: .45 });
+      o += text(wx, wy + wh / 2 + 4.4, 'RPM', 2.4, { alpha: .32, spacing: .4 });
     }
 
     // Strobe lamp: knurled housing, warm lens.
