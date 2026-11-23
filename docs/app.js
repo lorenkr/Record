@@ -7,7 +7,7 @@
  * Open with ?demo to preview without Spotify.
  */
 'use strict';
-const APP_VERSION = 3;
+const APP_VERSION = 4;
 
 // --- Behaviour ---------------------------------------------------------------
 const POLL_MS = 1500;          // how often Spotify is asked what's playing
@@ -718,6 +718,15 @@ function viewportSize() {
     const long = Math.max(screen.width, screen.height), short = Math.min(screen.width, screen.height);
     const full = W < long - 1 ? long : short;   // portrait: the long side is the height
     if (full > H && full - H < 140) H = full;
+  }
+  // The CSS adds the top safe area to the canvas height (see style.css); use that if it is taller.
+  const cv = main.view && main.view.canvas;
+  if (cv) {
+    const keep = cv.style.height;
+    cv.style.height = '';
+    const cssH = cv.getBoundingClientRect().height;
+    cv.style.height = keep;
+    if (cssH > H && cssH - H < 140) H = Math.round(cssH);
   }
   return { W, H };
 }
