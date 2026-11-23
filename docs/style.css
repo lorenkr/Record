@@ -85,6 +85,27 @@ body { min-height: calc(100vh + env(safe-area-inset-top)); }
 }
 #deck .switch.at45 i { transform: translateX(var(--travel)); }
 #deck .switch:active i { box-shadow: inset 0 1px 2px rgba(0,0,0,.7), .5px 1px 1.5px rgba(0,0,0,.5); }
+/* ?edit */
+#editLayer { position: fixed; inset: 0; touch-action: none; cursor: grab; }
+#editLayer.grabbing { cursor: grabbing; }
+#editor {
+  position: fixed; z-index: 8; left: 50%; transform: translateX(-50%); bottom: calc(10px + env(safe-area-inset-bottom));
+  width: min(380px, calc(100% - 20px)); border-radius: 18px; padding: 10px 14px 12px; font-size: 14px;
+  background: rgba(24,22,24,.78);
+}
+#editor .ehead { display: flex; align-items: center; justify-content: space-between; }
+#editor .ehead button { background: none; border: 0; color: var(--fg); font-size: 18px; padding: 2px 6px; cursor: pointer; transition: transform .2s; }
+#editor.folded .ebody { display: none; }
+#editor.folded .ehead button { transform: rotate(180deg); }
+#editor .hint { margin: 6px 0 8px; opacity: .7; font-size: 13px; }
+#editor label { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+#editor input[type=range] { flex: 1; accent-color: #fff; direction: ltr; }
+#editor .checks { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0; }
+#editor .checks label { margin: 0; gap: 5px; }
+#editor .row { display: flex; gap: 8px; margin-top: 10px; }
+#editor .btn { flex: 1; min-height: 40px; border-radius: 12px; border: 0; font: 600 15px var(--font); background: #fff; color: #111; cursor: pointer; }
+#editor .btn.secondary { background: rgba(255,255,255,.14); color: var(--fg); }
+
 #deck .faderHit { position: absolute; pointer-events: auto; touch-action: none; cursor: ns-resize; }
 
 /* Track info */

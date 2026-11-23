@@ -8,7 +8,7 @@
  * Open with ?demo to preview without Spotify.
  */
 'use strict';
-const APP_VERSION = 7;
+const APP_VERSION = 8;
 
 // --- Behaviour ---------------------------------------------------------------
 const POLL_MS = 1500;          // how often Spotify is asked what's playing
@@ -375,8 +375,25 @@ function drawBackground(view, L, dpr, S) {
 //  The deck's layers, bottom to top. Static ones are SVG drawn once; moving ones only get a
 //  transform (rotate / translate / scale) and an opacity each frame.
 // =============================================================================
+// The look that can be tuned in ?edit: offsets are in record units (its radius = 100).
+const DESIGN_DEFAULT = { size: 1, depth: 1, shadow: 1, rec: [0, 0], arm: [0, 0], skate: [0, 0], cue: [0, 0], switch: [0, 0], hide: [] };
+let design = structuredClone(DESIGN_DEFAULT);
+// Which movable group each layer belongs to.
+const GROUP = { recShadow: 'rec', record: 'rec', sheen: 'rec', spindle: 'rec',
+  pivotBase: 'arm', rest: 'arm', sh1: 'arm', sh2: 'arm', contact: 'arm', arm: 'arm', pivot: 'arm', clip: 'arm',
+  skate: 'skate', cueBase: 'cue', cue: 'cue', switchSlot: 'switch', switchBtn: 'switch' };
+const groupOff = g => (g && design[g]) || [0, 0];
+const effPivot = () => { const a = design.arm, r = design.rec; return [DG.pivot[0] + a[0] - r[0], DG.pivot[1] + a[1] - r[1]]; };
+
 const LAYERS = [
-  ['base', (s, R) => Deck.base(s, R, BARE)],
+  ...(BARE ? [
+    ['recShadow', (s, R) => Deck.base(s, R, true, 'rec')],
+    ['pivotBase', (s, R) => Deck.base(s, R, true, 'pivot')],
+    ['skate', (s, R) => Deck.base(s, R, true, 'skate')],
+    ['rest', (s, R) => Deck.base(s, R, true, 'rest')],
+    ['cueBase', (s, R) => Deck.base(s, R, true, 'cue')],
+    ['switchSlot', (s, R) => Deck.base(s, R, true, 'switch')],
+  ] : [['base', (s, R) => Deck.base(s, R, false)]]),
   ['d33', (s, R) => Deck.dots(s, R, 33)],
   ['d45', (s, R) => Deck.dots(s, R, 45)],
   ['glow', s => Deck.lampGlow(s)],
@@ -407,7 +424,7 @@ function poseFor(key, P) {   // { rot (deg), scale, dx, dy (px), alpha } — nul
     case 'sh1': case 'sh2': {
       // floating ~15–20 mm above the record; lifting pushes the shadow further and softer
       const off = 5 + 7 * P.lift;
-      return { rot: P.arm, scale: 1 + 0.02 * P.lift, dx: off, dy: off, alpha: key === 'sh1' ? 0.42 * (1 - P.lift) : 0.34 * P.lift };
+      return { rot: P.arm, scale: 1 + 0.02 * P.lift, dx: off, dy: off, alpha: Math.min(1, design.shadow * (key === 'sh1' ? 0.42 * (1 - P.lift) : 0.34 * P.lift)) };
     }
     case 'contact': return { rot: P.arm, alpha: P.contact };
     case 'arm': return { rot: P.arm, scale: 1 + 0.02 * P.lift };
@@ -479,6 +496,8 @@ function insets() {
 
 const DB = BARE ? { x0: -114, x1: 162, y0: -138, y1: 116 } : DG.bounds, DECK_W = DB.x1 - DB.x0, DECK_H = DB.y1 - DB.y0;
 function deckAt(s, x, y) {   // the plinth's top-left corner at (x, y), s px per unit
+  const k = design.size, cx = x + DECK_W * s / 2, cy = y + DECK_H * s / 2;   // grow / shrink round the centre
+  s = Math.max(0.05, s * k); x = cx - DECK_W * s / 2; y = cy - DECK_H * s / 2;
   return { R: 100 * s, C: { x: x - DB.x0 * s, y: y - DB.y0 * s }, deck: { x, y, w: DECK_W * s, h: DECK_H * s } };
 }
 
@@ -566,7 +585,7 @@ function tick(dt) {
   // Tonearm: cue up (200 ms) → swing (600 ms) → lower (300 ms), like cueing a real record.
   const onRecord = S.track && (S.state === 'playing' || S.state === 'paused');
   const [gOut, gIn] = DG.groove;
-  const target2 = onRecord ? DG.armAngle(gOut - (gOut - gIn) * progressFraction()) : DG.rest;
+  const target2 = onRecord ? DG.armAngle(gOut - (gOut - gIn) * progressFraction(), effPivot()) : DG.rest;
   const wantUp = onRecord && S.state === 'paused';
   const A = S.arm;
   if (S.scrub && onRecord) {   // the arm rides the groove as the record is turned
@@ -692,6 +711,10 @@ function resize() {
 }
 
 const px = v => v.toFixed(2) + 'px';
+function recCenter() {   // where the record's spindle is on screen (it can be moved in ?edit)
+  const L = main.layout, s = L.R / 100;
+  return { x: L.C.x + design.rec[0] * s, y: L.C.y + design.rec[1] * s };
+}
 
 function buildDeck() {
   const L = main.layout, s = L.R / 100, R = L.R, dpr = main.dpr, host = $('#deck');
@@ -719,9 +742,12 @@ function buildDeck() {
       Object.assign(dot.style, { left: px(DG.armLen * s) });
       el.appendChild(dot);
     }
+    el._home = [parseFloat(el.style.left) || 0, parseFloat(el.style.top) || 0];
     host.appendChild(el);
     main.layers[key] = el;
   }
+  host.style.setProperty('--depth', design.depth);
+  host.style.setProperty('--shadow', design.shadow);
   refreshLabels();
 
   // Controls on the plinth: START/STOP, 33 / 45 with their LEDs, and the pitch fader.
@@ -734,7 +760,10 @@ function buildDeck() {
     sw.innerHTML = '<i></i>';
     place(sw, wx - ww / 2, wy - wh / 2, ww, wh);
     sw.style.setProperty('--travel', px(ww / 2 * s));
+    sw._home = [parseFloat(sw.style.left), parseFloat(sw.style.top)];
     host.appendChild(sw);
+    main.layers.switchBtn = sw;
+    applyDesignOffsets();
     syncDeckControls();
     return;
   }
@@ -763,6 +792,18 @@ function buildDeck() {
   host.append(fader, hit);
   main.fader = fader;
   syncDeckControls();
+}
+
+// Move every layer by its group's offset (cheap: used live while dragging in ?edit).
+function applyDesignOffsets() {
+  const s = main.layout.R / 100;
+  for (const [key, el] of Object.entries(main.layers || {})) {
+    if (!el._home) continue;
+    const g = GROUP[key], [dx, dy] = groupOff(g);
+    el.style.left = px(el._home[0] + dx * s); el.style.top = px(el._home[1] + dy * s);
+    el.style.display = design.hide.includes(g) ? 'none' : '';
+  }
+  // an arm moved away from the record rests and cues relative to it
 }
 
 function placeCanvas(cv, R) {
@@ -870,8 +911,9 @@ function drawPip() {
     p.save();
     p.globalAlpha = alpha;
     const o = pip.imgs && pip.imgs[key];
-    const origin = o ? o.spec.origin : key === 'contact' ? DG.pivot : [0, 0];
-    p.translate(origin[0] * s + (T.dx || 0), origin[1] * s + (T.dy || 0));
+    const origin = o ? o.spec.origin : key === 'contact' ? DG.pivot : [0, 0], [gx, gy] = groupOff(GROUP[key]);
+    if (design.hide.includes(GROUP[key])) { p.restore(); continue; }
+    p.translate((origin[0] + gx) * s + (T.dx || 0), (origin[1] + gy) * s + (T.dy || 0));
     p.rotate(rad(T.rot || 0));
     if (T.scale) p.scale(T.scale, T.scale);
     if (o) {
@@ -1235,9 +1277,9 @@ function bindUI() {
   // Drag the record round to move through the song (a tap still pauses / plays).
   const scene = $('#scene');
   let grab = null, swallowClick = false;
-  const angleAt = e => deg(Math.atan2(e.clientY - main.layout.C.y, e.clientX - main.layout.C.x));
+  const angleAt = e => { const c = recCenter(); return deg(Math.atan2(e.clientY - c.y, e.clientX - c.x)); };
   scene.addEventListener('pointerdown', e => {
-    const L = main.layout, d = Math.hypot(e.clientX - L.C.x, e.clientY - L.C.y);
+    const L = main.layout, c = recCenter(), d = Math.hypot(e.clientX - c.x, e.clientY - c.y);
     if (d > L.R || d < L.R * 0.08 || !S.track || S.status === 'auth' || S.status === 'config') return;
     grab = { id: e.pointerId, x: e.clientX, y: e.clientY, a: angleAt(e), moved: false };
   });
@@ -1270,7 +1312,7 @@ function bindUI() {
     if (S.status === 'config') return showSetup();
     if (S.status === 'auth') return showConnect();
     // Tap the record to pause / play.
-    const L = main.layout, d = Math.hypot(e.clientX - L.C.x, e.clientY - L.C.y);
+    const L = main.layout, c = recCenter(), d = Math.hypot(e.clientX - c.x, e.clientY - c.y);
     if (d < L.R && (S.track || demo)) command('toggle');
     showControls();
   });
@@ -1304,14 +1346,106 @@ function bindUI() {
 }
 
 // =============================================================================
+//  ?edit — move the parts around, tune depth / shadows, then copy the settings
+// =============================================================================
+const EDIT = new URLSearchParams(location.search).has('edit');
+const saveDesign = () => store.set('design', JSON.stringify(design));
+
+function setupEditor() {
+  const layer = document.createElement('div'); layer.id = 'editLayer';
+  $('#deck').after(layer);
+  const panel = document.createElement('div');
+  panel.id = 'editor'; panel.className = 'glass'; panel.dir = 'rtl';
+  panel.innerHTML = `
+    <div class="ehead"><b>עריכת עיצוב</b><button data-e="fold" aria-label="מזער">▾</button></div>
+    <div class="ebody">
+      <p class="hint">גררי חלקים כדי להזיז אותם: התקליט, הזרוע, הדיאל, ידית ההרמה והמתג.</p>
+      <label>גודל<input type="range" data-k="size" min="0.6" max="1.5" step="0.01"></label>
+      <label>עומק השקעים<input type="range" data-k="depth" min="0" max="1" step="0.01"></label>
+      <label>עוצמת הצללים<input type="range" data-k="shadow" min="0" max="1.6" step="0.01"></label>
+      <div class="checks">
+        <label><input type="checkbox" data-h="skate">דיאל</label>
+        <label><input type="checkbox" data-h="cue">ידית הרמה</label>
+        <label><input type="checkbox" data-h="switch">מתג מהירות</label>
+      </div>
+      <div class="row"><button class="btn" data-e="copy">העתק הגדרות</button><button class="btn secondary" data-e="reset">איפוס</button></div>
+    </div>`;
+  document.body.appendChild(panel);
+  const sync = () => {
+    panel.querySelectorAll('[data-k]').forEach(i => { i.value = design[i.dataset.k]; });
+    panel.querySelectorAll('[data-h]').forEach(i => { i.checked = !design.hide.includes(i.dataset.h); });
+  };
+  sync();
+  let sizeTimer = 0;
+  panel.addEventListener('input', e => {
+    const k = e.target.dataset.k, h = e.target.dataset.h;
+    if (k) {
+      design[k] = +e.target.value;
+      if (k === 'size') { clearTimeout(sizeTimer); sizeTimer = setTimeout(resize, 60); }
+      else $('#deck').style.setProperty('--' + k, design[k]);
+    } else if (h) {
+      design.hide = design.hide.filter(x => x !== h);
+      if (!e.target.checked) design.hide.push(h);
+      applyDesignOffsets();
+    }
+    saveDesign();
+  });
+  panel.addEventListener('click', async e => {
+    const act = e.target.closest('[data-e]')?.dataset.e;
+    if (act === 'fold') panel.classList.toggle('folded');
+    else if (act === 'reset') { design = structuredClone(DESIGN_DEFAULT); saveDesign(); sync(); resize(); }
+    else if (act === 'copy') {
+      const json = JSON.stringify(roundDesign(design));
+      try { await navigator.clipboard.writeText(json); toast('ההגדרות הועתקו — הדביקי אותן לי בצ׳אט'); }
+      catch { sheet(`<h2>ההגדרות שלך</h2><p>העתיקי את הטקסט ושלחי לי:</p><textarea readonly rows="5" style="width:100%;direction:ltr;font:13px ui-monospace,monospace">${json}</textarea><div class="row"><button class="btn" data-close>סגור</button></div>`); }
+    }
+  });
+
+  // Dragging: grab the nearest part (small ones first), move its whole group.
+  const spots = () => [
+    ['switch', DG.speedSwitch, 16], ['skate', DG.skate, 14], ['cue', DG.cue, 18],
+    ['arm', DG.pivot, 36], ['arm', DG.restPost, 12], ['rec', [0, 0], 100],
+  ];
+  let drag = null;
+  layer.addEventListener('pointerdown', e => {
+    const L = main.layout, s = L.R / 100;
+    for (const [g, [x, y], r] of spots()) {
+      if (design.hide.includes(g)) continue;
+      const o = groupOff(g), sx = L.C.x + (x + o[0]) * s, sy = L.C.y + (y + o[1]) * s;
+      if (Math.hypot(e.clientX - sx, e.clientY - sy) <= r * s) {
+        drag = { id: e.pointerId, g, x: e.clientX, y: e.clientY, o: [...o] };
+        layer.setPointerCapture(e.pointerId); layer.classList.add('grabbing');
+        return;
+      }
+    }
+  });
+  layer.addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const s = main.layout.R / 100;
+    design[drag.g] = [drag.o[0] + (e.clientX - drag.x) / s, drag.o[1] + (e.clientY - drag.y) / s];
+    applyDesignOffsets();
+  });
+  const end = e => { if (drag && e.pointerId === drag.id) { drag = null; layer.classList.remove('grabbing'); saveDesign(); } };
+  layer.addEventListener('pointerup', end); layer.addEventListener('pointercancel', end);
+  toast('מצב עריכה: גררי חלקים, ושחקי עם הסליידרים למטה');
+}
+
+function roundDesign(d) {
+  const r = v => Array.isArray(v) ? v.map(r) : typeof v === 'number' ? Math.round(v * 100) / 100 : v;
+  return Object.fromEntries(Object.entries(d).map(([k, v]) => [k, r(v)]));
+}
+
+// =============================================================================
 async function start() {
   main.view = new View($('#scene'));
+  try { const d = JSON.parse(store.get('design') || 'null'); if (d) design = { ...structuredClone(DESIGN_DEFAULT), ...d }; } catch { }
   S.speed = store.get('speed') === '45' ? 45 : 33;
   S.pitch = clamp(+store.get('pitch') || 0, -8, 8);
   bindUI();
   resize();
   requestAnimationFrame(t => { lastT = t; frame(t); });
   $('#btnPip').hidden = !pipSupported();
+  if (EDIT) setupEditor();
   showControls();
 
   if (demo) {

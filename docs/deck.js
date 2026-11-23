@@ -40,8 +40,8 @@ const Deck = (() => {
     const a = rad(angle), c = Math.cos(a), s = Math.sin(a);
     return [G.pivot[0] + x * c - y * s, G.pivot[1] + x * s + y * c];
   };
-  G.armAngle = r => {   // arm angle that puts the stylus at radius r
-    const [px, py] = G.pivot, d = Math.hypot(px, py), L = G.armLen;
+  G.armAngle = (r, pivot = G.pivot) => {   // arm angle that puts the stylus at radius r
+    const [px, py] = pivot, d = Math.hypot(px, py), L = G.armLen;
     const cos = Math.max(-1, Math.min(1, (L * L + d * d - r * r) / (2 * L * d)));
     return deg(Math.atan2(-py, -px)) - deg(Math.acos(cos));
   };
@@ -101,12 +101,13 @@ const Deck = (() => {
     lin(id + 'In', [[0, '#000', .7], [.45, '#000', .15], [.55, '#fff', .02], [1, '#fff', .22]]);
   const text = (x, y, str, size, { anchor = 'middle', spacing = .14, alpha = .3, weight = 600, rotate = 0 } = {}) =>
     `<text x="${N(x)}" y="${N(y)}" font-family="${FONT}" font-size="${N(size)}" font-weight="${weight}" letter-spacing="${N(size * spacing)}" text-anchor="${anchor}" dominant-baseline="middle" fill="#fff" fill-opacity="${alpha}"${rotate ? ` transform="rotate(${rotate} ${N(x)} ${N(y)})"` : ''}>${str}</text>`;
-  const shadow = (shape, dx, dy, filter, op) => `<g transform="translate(${N(dx)} ${N(dy)})" filter="url(#${filter})" opacity="${op}">${shape}</g>`;
+  const shadow = (shape, dx, dy, filter, op) => `<g transform="translate(${N(dx)} ${N(dy)})" filter="url(#${filter})" opacity="${op}" style="opacity:calc(${op} * var(--shadow, 1))">${shape}</g>`;
 
   // =============================================================================
   //  Static base: plinth, platter, bearing stack, anti-skate, rest, cue housing, lamp, pitch track
   // =============================================================================
-  function base(s, R, bare = false) {
+  function base(s, R, bare = false, only = null) {
+    const want = k => !only || only === k;   // draw just one part (its own layer) or everything
     const P = v => v / s;                    // pixels → units
     const b = G.bounds, pad = P(46), Rp = 100 + P(G.rimPx(R));
     const box = [b.x0 - pad, b.y0 - pad, b.x1 - b.x0 + 2 * pad, b.y1 - b.y0 + 2 * pad];
@@ -140,7 +141,7 @@ const Deck = (() => {
 
     // Platter well, platter (turned aluminium rim) and the record's contact shadow on it.
     if (bare) {   // no plinth / platter: the record floats on the surface with its own shadow
-      o += shadow(`<circle r="100" fill="#000"/>`, P(9), P(13), 'fX', .55) + shadow(`<circle r="100" fill="#000"/>`, P(2), P(3), 'fM', .7);
+      if (want('rec')) o += shadow(`<circle r="100" fill="#000"/>`, P(9), P(13), 'fX', .55) + shadow(`<circle r="100" fill="#000"/>`, P(2), P(3), 'fM', .7);
     } else {
     o += `<circle r="${N(Rp + P(3))}" fill="${gray(7)}"/>` + bevelRing(0, 0, Rp + P(3) - P(.6), P(1.2), 'bv', true);
     o += shadow(`<circle r="${N(Rp)}" fill="#000"/>`, P(2), P(2.6), 'fS', .85);
@@ -153,21 +154,25 @@ const Deck = (() => {
     // Parts set into the surface (bare preview): a darker well, a soft inner shadow along the
     // edge nearest the light, and a lit lip on the far side — like a cut-out in a real deck.
     const recess = (id, shape) => {
+      o += `<g style="opacity:var(--depth, 1)">`;
       o += `<clipPath id="${id}">${shape('fill="#000"')}</clipPath>` + shape('fill="#000" opacity=".3"');
       o += `<g clip-path="url(#${id})"><g transform="translate(${N(P(2.6))} ${N(P(3.2))})" filter="url(#fM)">${shape(`fill="none" stroke="#000" stroke-opacity=".9" stroke-width="${N(P(8))}"`)}</g></g>`;
       o += shape(`fill="none" stroke="url(#bvIn)" stroke-width="${N(P(1.6))}"`);
+      o += `</g>`;
     };
     const hole = (cx, cy, r) => a => `<circle cx="${N(cx)}" cy="${N(cy)}" r="${N(r)}" ${a}/>`;
     if (bare) {
-      recess('rP', hole(...G.pivot, 31));
-      recess('rS', hole(...G.skate, 7.8));
-      recess('rR', hole(...G.restPost, 7.4));
-      recess('rC', a => `<rect x="-6.8" y="-10.8" width="13.6" height="23.6" rx="3.6" transform="translate(${G.cue[0]} ${G.cue[1]}) rotate(-35)" ${a}/>`);
+      if (want('pivot')) recess('rP', hole(...G.pivot, 31));
+      if (want('skate')) recess('rS', hole(...G.skate, 7.8));
+      if (want('rest')) recess('rR', hole(...G.restPost, 7.4));
+      if (want('cue')) recess('rC', a => `<rect x="-6.8" y="-10.8" width="13.6" height="23.6" rx="3.6" transform="translate(${G.cue[0]} ${G.cue[1]}) rotate(-35)" ${a}/>`);
       // 33 / 45 slide switch: a slot cut into the surface, with tiny printed labels
       const [wx, wy, ww, wh] = G.speedSwitch;
+      if (want('switch')) {
       recess('rW', a => `<rect x="${wx - ww / 2}" y="${wy - wh / 2}" width="${ww}" height="${wh}" rx="${wh / 2}" ${a}/>`);
       o += text(wx - ww / 4, wy - wh / 2 - 4.2, '33', 3, { alpha: .45 }) + text(wx + ww / 4, wy - wh / 2 - 4.2, '45', 3, { alpha: .45 });
       o += text(wx, wy + wh / 2 + 4.4, 'RPM', 2.4, { alpha: .32, spacing: .4 });
+      }
     }
 
     // Strobe lamp: knurled housing, warm lens.
@@ -182,6 +187,7 @@ const Deck = (() => {
 
     // Tonearm base: knurled collar → height-adjust ring with ticks → recess the gimbal sits in.
     const [px, py] = G.pivot;
+    if (want('pivot')) {
     o += shadow(`<circle cx="${px}" cy="${py}" r="27" fill="#000"/>`, P(3.5), P(4.5), 'fL', .65);
     o += fan(px, py, 0, 27, 120, brushed(58, 70, 28, 21, 5)) + knurl(px, py, 25.9, 27, 240, P(.35)) + bevelRing(px, py, 26.8, P(.6), 'bv');
     o += shadow(`<circle cx="${px}" cy="${py}" r="20.5" fill="#000"/>`, P(1.6), P(2.1), 'fS', .7);
@@ -198,9 +204,11 @@ const Deck = (() => {
       o += text(px + 13.6 * Math.cos(a), py + 13.6 * Math.sin(a), String(n), 2.4, { alpha: .32, rotate: -90 + k * 30 + 90 });
     });
     o += `<circle cx="${px}" cy="${py}" r="12.4" fill="${gray(12)}"/>` + bevelRing(px, py, 12.1, P(.9), 'bv', true);
+    }
 
     // Anti-skate dial: knurled knob, indicator notch, scale 0–3.
     const [sx, sy] = G.skate, sa = v => rad(150 + v * 80);
+    if (want('skate')) {
     o += shadow(`<circle cx="${sx}" cy="${sy}" r="6.4" fill="#000"/>`, P(2.2), P(2.8), 'fM', .7);
     o += fan(sx, sy, 0, 6.4, 64, brushed(70, 75, 30, 31, 5)) + knurl(sx, sy, 5.4, 6.4, 56, P(.45));
     o += fan(sx, sy, 0, 4.4, 64, brushed(135, 95, 45, 32, 6)) + bevelRing(sx, sy, 4.3, P(.6), 'bv');
@@ -211,22 +219,33 @@ const Deck = (() => {
       else o += text(sx + 9.4 * Math.cos(a), sy + 9.4 * Math.sin(a), String(v), 2.6, { alpha: .3 });
     }
     o += text(sx, sy + 14.5, 'ANTI-SKATE', 2, { alpha: .2, spacing: .3 });
+    }
 
     // Arm rest post (the clip sits above the arm, in its own layer).
     const [rx, ry] = G.restPost;
+    if (want('rest')) {
     o += shadow(`<circle cx="${N(rx)}" cy="${N(ry)}" r="5.4" fill="#000"/>`, P(2.4), P(3), 'fM', .7);
     o += fan(rx, ry, 0, 5.4, 48, brushed(60, 60, 25, 41, 4)) + bevelRing(rx, ry, 5.2, P(.6), 'bv');
     o += `<circle cx="${N(rx)}" cy="${N(ry)}" r="3.6" fill="url(#post)"/>`;
     o += `<g transform="translate(${N(rx)} ${N(ry)}) rotate(${N(G.rest + deg(G.tubeA))})"><rect x="-3" y="-2.6" width="6" height="5.2" rx="1" fill="${gray(18)}"/></g>`;
+    }
 
     // Cue lever housing.
-    const [cx, cy] = G.cue, cueRect = `<rect x="-5" y="-9" width="10" height="20" rx="2.4" transform="translate(${cx} ${cy}) rotate(-35)"/>`;
+    const [cx, cy] = G.cue;
+    if (want('cue')) {
+    const cueRect = `<rect x="-5" y="-9" width="10" height="20" rx="2.4" transform="translate(${cx} ${cy}) rotate(-35)"/>`;
     o += shadow(cueRect.replace('<rect', '<rect fill="#000"'), P(2.4), P(3), 'fM', .7);
     o += cueRect.replace('<rect', '<rect fill="url(#cueBody)"');
     o += cueRect.replace('<rect', `<rect fill="none" stroke="url(#bv)" stroke-width="${N(P(.7))}"`);
     o += text(cx + 8.5, cy + 13, '▲', 2.2, { alpha: .25 }) + text(cx + 12, cy + 10, '▼', 2.2, { alpha: .25 });
+    }
 
-    if (bare) return { origin: [0, 0], box, svg: svg(box, s, o, defs, 'base') };
+    if (bare) {
+      const [wx, wy] = G.speedSwitch, [rx2, ry2] = G.restPost;
+      const parts = { rec: [-135, -135, 280, 280], pivot: [px - 45, py - 45, 90, 90], skate: [sx - 20, sy - 20, 40, 42],
+        rest: [rx2 - 14, ry2 - 14, 28, 28], cue: [cx - 24, cy - 24, 48, 50], switch: [wx - 20, wy - 16, 40, 32] };
+      return { origin: [0, 0], box: only ? parts[only] : box, svg: svg(only ? parts[only] : box, s, o, defs, only || 'base') };
+    }
 
     // Pitch fader track with a ±8 % scale and a centre detent mark.
     const { x: fx, y0: fy0, y1: fy1 } = G.pitch, fm = (fy0 + fy1) / 2;
