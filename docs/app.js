@@ -8,7 +8,7 @@
  * Open with ?demo to preview without Spotify.
  */
 'use strict';
-const APP_VERSION = 9;
+const APP_VERSION = 10;
 
 // --- Behaviour ---------------------------------------------------------------
 const POLL_MS = 1500;          // how often Spotify is asked what's playing
@@ -506,14 +506,15 @@ function layoutFor(W, H, ins = { top: 0, right: 0, bottom: 0, left: 0 }, { contr
   if (W / H < 1.15) {   // portrait phone: a smaller turntable in the middle, words underneath
     const tbH = controls ? 58 : 8, ctrlH = controls ? 76 : 0;
     const textH = clamp(availH * 0.2, 104, 190);
-    const s = Math.max(0.3, Math.min((W - 40 - ins.left - ins.right) / DECK_W, (availH - tbH - textH - ctrlH - 24) / DECK_H, 1.7));
-    const dh = DECK_H * s, total = tbH + dh + 16 + textH + ctrlH;
-    const y = top + Math.max(0, (availH - total) / 2) + tbH;
+    const fs = controls ? clamp(W * 0.15, 44, 68) : 0, clockH = fs * 0.75;   // the clock, above the record
+    const s = Math.max(0.3, Math.min((W - 40 - ins.left - ins.right) / DECK_W, (availH - tbH - clockH - textH - ctrlH - 24) / DECK_H, 1.7));
+    const dh = DECK_H * s, total = tbH + clockH + dh + 16 + textH + ctrlH;
+    const y = top + Math.max(0, (availH - total) / 2) + tbH + clockH;
     const d = deckAt(s, W / 2 - DECK_W * s / 2, y);
     const textTop = y + dh + 16;
     const text = { x: 20 + ins.left, w: W - 40 - ins.left - ins.right, top: textTop, h: Math.min(textH, H - ins.bottom - ctrlH - textTop - 8) };
     text.yc = text.top + text.h / 2;
-    return { W, H, ...d, portrait: true, text,
+    return { W, H, ...d, portrait: true, text, clock: { fs, minTop: top + tbH - 4 },
       controls: { x: W / 2, y: Math.min(H - ins.bottom - ctrlH / 2 - 6, text.top + text.h + ctrlH / 2) },
       toolbar: { left: 14 + ins.left, top: top + 8 } };
   }
@@ -528,6 +529,7 @@ function layoutFor(W, H, ins = { top: 0, right: 0, bottom: 0, left: 0 }, { contr
   const text = { x: margin, w: x - 22 - margin, top: controls ? top + tbH : top + (availH - h) / 2, h };
   text.yc = text.top + h / 2;
   return { W, H, ...d, portrait: false, text,
+    clock: { fs: controls ? clamp(H * 0.13, 40, 72) : 0, right: Math.max(24, ins.right + 16), bottom: Math.max(14, ins.bottom + 8) },
     controls: { x: margin + Math.min(text.w, 190) / 2, y: top + availH - ctrlH / 2 - 4, left: margin },
     toolbar: { left: margin - 4, top: top + 10 } };
 }
@@ -705,12 +707,35 @@ function resize() {
   else Object.assign(c.style, { left: L.controls.left + 'px', transform: 'translateY(-50%)', top: L.controls.y + 'px' });
   Object.assign(tb.style, { left: L.toolbar.left + 'px', top: L.toolbar.top + 'px' });
   buildDeck();
+  placeClock();
   updateText(true);
   main.bgDirty = true;
   draw();
 }
 
 const px = v => v.toFixed(2) + 'px';
+
+// The time, debossed into the surface the turntable stands on (lit from the top-left like the parts).
+function placeClock() {
+  const L = main.layout, k = L.clock, el = $('#clock');
+  el.style.fontSize = px(k.fs);
+  if (L.portrait) {
+    const c = recCenter(), h = k.fs * 1.1;   // its line box
+    Object.assign(el.style, { left: px(c.x), right: '', bottom: '', transform: 'translateX(-50%)',
+      top: px(Math.max(k.minTop, c.y - L.R - h - k.fs * 0.2)) });
+  } else {
+    Object.assign(el.style, { left: '', top: '', transform: '', right: px(k.right), bottom: px(k.bottom) });
+  }
+  el.hidden = !k.fs || design.hide.includes('clock');
+  tickClock();
+}
+let clockTimer = 0;
+function tickClock() {
+  clearTimeout(clockTimer);
+  const now = new Date();
+  $('#clock').textContent = `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`;
+  clockTimer = setTimeout(tickClock, 60000 - now.getSeconds() * 1000 - now.getMilliseconds() + 50);
+}
 function recCenter() {   // where the record's spindle is on screen (it can be moved in ?edit)
   const L = main.layout, s = L.R / 100;
   return { x: L.C.x + design.rec[0] * s, y: L.C.y + design.rec[1] * s };
@@ -803,6 +828,7 @@ function applyDesignOffsets() {
     el.style.left = px(el._home[0] + dx * s); el.style.top = px(el._home[1] + dy * s);
     el.style.display = design.hide.includes(g) ? 'none' : '';
   }
+  $('#clock').hidden = !main.layout.clock.fs || design.hide.includes('clock');
   // an arm moved away from the record rests and cues relative to it
 }
 
@@ -1107,6 +1133,7 @@ function setArt(art) {
   main.view.forgetArt(keep);
   if (pip.view) pip.view.forgetArt(keep);
   refreshLabels();
+  $('#clock').classList.toggle('onDark', art.lum < 0.3);
 }
 
 let pollTimer = 0;
@@ -1367,6 +1394,7 @@ function setupEditor() {
         <label><input type="checkbox" data-h="skate">דיאל</label>
         <label><input type="checkbox" data-h="cue">ידית הרמה</label>
         <label><input type="checkbox" data-h="switch">מתג מהירות</label>
+        <label><input type="checkbox" data-h="clock">שעה</label>
       </div>
       <div class="row"><button class="btn" data-e="copy">העתק הגדרות</button><button class="btn secondary" data-e="reset">איפוס</button></div>
     </div>`;
