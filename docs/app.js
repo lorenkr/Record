@@ -8,7 +8,7 @@
  * Open with ?demo to preview without Spotify.
  */
 'use strict';
-const APP_VERSION = 8;
+const APP_VERSION = 9;
 
 // --- Behaviour ---------------------------------------------------------------
 const POLL_MS = 1500;          // how often Spotify is asked what's playing
@@ -376,7 +376,7 @@ function drawBackground(view, L, dpr, S) {
 //  transform (rotate / translate / scale) and an opacity each frame.
 // =============================================================================
 // The look that can be tuned in ?edit: offsets are in record units (its radius = 100).
-const DESIGN_DEFAULT = { size: 1, depth: 1, shadow: 1, rec: [0, 0], arm: [0, 0], skate: [0, 0], cue: [0, 0], switch: [0, 0], hide: [] };
+const DESIGN_DEFAULT = { size: 1.03, depth: 0, shadow: 1.6, rec: [0, 0], arm: [-5.02, -12.33], skate: [-12.18, -11.03], cue: [-12.27, 7.95], switch: [0, 0], hide: ["switch"] };
 let design = structuredClone(DESIGN_DEFAULT);
 // Which movable group each layer belongs to.
 const GROUP = { recShadow: 'rec', record: 'rec', sheen: 'rec', spindle: 'rec',
